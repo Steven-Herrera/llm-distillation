@@ -90,14 +90,18 @@ def main():
     generate_teacher_logits = generate_teacher_logits_factory(teacher_model)
 
     biomedical_data = get_biomedical_data()
+
+    print("Preprocessing data...")
     biomedical_data = biomedical_data.map(preprocess_data, batched=True)
     # Apply logit generation
+    print("Generating Teacher Logits...")
     biomedical_data = biomedical_data.map(generate_teacher_logits, batched=True)
 
     dataloader = DataLoader(biomedical_data, batch_size=BATCH_SIZE)
 
     optimizer = optim.AdamW(student_model.parameters(), lr=LEARNING_RATE)
 
+    print("Starting Training!")
     for epoch in range(EPOCHS):
         for batch in dataloader:
             student_outputs = student_model(input_ids=batch["student_input_ids"])
