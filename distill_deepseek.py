@@ -22,6 +22,7 @@ def get_biomedical_data():
 
 def preprocess_function_factory(teacher_tokenizer, student_tokenizer):
     def preprocess_data(examples):
+        print("Getting tokens...")
         teacher_inputs = teacher_tokenizer(
             examples["text"],
             truncation=True,
@@ -48,6 +49,7 @@ def preprocess_function_factory(teacher_tokenizer, student_tokenizer):
 def generate_teacher_logits_factory(teacher_model):
     def generate_teacher_logits(batch):
         with torch.no_grad():
+            print("Getting teacher logits...")
             teacher_outputs = teacher_model(input_ids=batch["teacher_input_ids"])
             teacher_logits = teacher_outputs.logits
         return {"teacher_logits": teacher_logits}
@@ -56,6 +58,7 @@ def generate_teacher_logits_factory(teacher_model):
 
 
 def distillation_loss(student_logits, teacher_logits, temperature=2.0):
+    print("Getting loss...")
     soft_teacher = nn.functional.softmax(teacher_logits / temperature, dim=-1)
     soft_student = nn.functional.log_softmax(student_logits / temperature, dim=-1)
 
@@ -91,10 +94,10 @@ def main():
 
     biomedical_data = get_biomedical_data()
 
-    print("Preprocessing data...")
+    print("Mapping preprocessing fn..")
     biomedical_data = biomedical_data.map(preprocess_data, batched=True)
     # Apply logit generation
-    print("Generating Teacher Logits...")
+    print("Mapping Teacher Logits...")
     biomedical_data = biomedical_data.map(generate_teacher_logits, batched=True)
 
     dataloader = DataLoader(biomedical_data, batch_size=BATCH_SIZE)
@@ -115,6 +118,9 @@ def main():
             loss.backward()
 
             print(f"Epoch {epoch}, Loss: {loss.item()}")
+
+    student_model.save_pretrained("distilbert-biomedical")
+    student_tokenizer.save_pretrained("distilbert-biomedical")
 
 
 if __name__ == "__main__":
