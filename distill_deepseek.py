@@ -73,7 +73,7 @@ def main():
     TEMPERATURE = 2.0
     EPOCHS = 3
 
-    device = torch.device("gpu")
+    device = torch.device("cuda")
 
     teacher_model_name = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
     student_model_name = "distilbert-base-uncased"
