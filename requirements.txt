@@ -10,7 +10,7 @@ filelock==3.17.0
     # via
     #   huggingface-hub
     #   transformers
-fsspec==2025.2.0
+#fsspec==2025.2.0
     # via huggingface-hub
 huggingface-hub==0.29.1
     # via
