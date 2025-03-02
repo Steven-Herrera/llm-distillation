@@ -123,7 +123,7 @@ def main():
     student_model_name = "distilbert-base-uncased"
 
     # Initialize accelerator
-    accelerator = Accelerator()
+    accelerator = Accelerator(offload_buffers=True)
 
     # Use accelerator.device instead of torch.device
     device = accelerator.device
