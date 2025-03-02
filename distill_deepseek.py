@@ -226,8 +226,8 @@ def main():
             if avg_epoch_loss < best_loss:
                 best_loss = avg_epoch_loss
                 epochs_without_improvement = 0
-                student_model.save_pretrained("distilbert-pubmed-model")
-                student_tokenizer.save_pretrained("distilbert-tokenizer")
+                student_model.save_pretrained("/data/stevherr/distilbert-pubmed-model")
+                student_tokenizer.save_pretrained("/data/stevherr/distilbert-tokenizer")
             else:
                 epochs_without_improvement += 1
                 if epochs_without_improvement >= ES_PATIENCE:
