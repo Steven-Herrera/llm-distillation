@@ -103,7 +103,7 @@ def distillation_loss(student_logits, teacher_logits, temperature=2.0):
 def main():
     load_dotenv()
     LEARNING_RATE = 5e-5
-    BATCH_SIZE = 16
+    BATCH_SIZE = 8
     TEMPERATURE = 2.0
     EPOCHS = 50
     ES_PATIENCE = 10
@@ -127,10 +127,15 @@ def main():
 
     # use_cache=False enables gradient checkpointing which helps reduce memory usage
     teacher_model = AutoModelForCausalLM.from_pretrained(
-        teacher_model_name, use_cache=False
+        teacher_model_name,
+        use_cache=False,
+        torch_dtype=torch.float16,
+        device_map="auto",
     ).to(device)
+    teacher_model.gradient_checkpointing_enable()
+
     student_model = DistilBertForSequenceClassification.from_pretrained(
-        student_model_name
+        student_model_name, torch_dtype=torch.float16
     ).to(device)
 
     teacher_tokenizer = AutoTokenizer.from_pretrained(teacher_model_name)
@@ -167,6 +172,7 @@ def main():
                 "optimizer": "AdamW",
             }
         )
+        scaler = torch.amp.GradScaler()
         for epoch in range(EPOCHS):
             student_model.train()
             epoch_loss = 0.0
@@ -178,8 +184,14 @@ def main():
                 student_logits = student_outputs.logits
                 loss = distillation_loss(student_logits, teacher_logits, TEMPERATURE)
                 optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
+                scaler.scale(
+                    loss
+                ).backward()  # Scale the loss and perform backward pass
+                scaler.step(optimizer)  # Update optimizer
+                scaler.update()
+
+                # loss.backward()
+                # optimizer.step()
 
                 epoch_loss += loss.item()
 
