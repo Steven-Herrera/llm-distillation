@@ -2,16 +2,19 @@
 Script for distilling a distilled deepseek llama-3.1 8B model into a DistilBert model
 """
 
+import os
+import mlflow
 from tqdm import tqdm
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
     DistilBertForSequenceClassification,
 )
-from datasets import load_dataset
+from datasets import load_from_disk
 import torch
 from torch import nn
 from torch import optim
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 
 
@@ -44,14 +47,12 @@ def collate_fn_factory(teacher_tokenizer, student_tokenizer):
 
 
 def get_biomedical_data():
-    dataset = load_dataset("monology/pile-uncopyrighted", split="train")
-    biomedical_data = dataset.filter(lambda x: x["meta"]["pile_set_name"] == "pubmed")
+    biomedical_data = load_from_disk("/data2/stevherr/pubmed_subset")
     return biomedical_data
 
 
 def preprocess_function_factory(teacher_tokenizer, student_tokenizer):
     def preprocess_data(examples):
-        print("Getting tokens...")
         teacher_inputs = teacher_tokenizer(
             examples["text"],
             truncation=True,
@@ -78,18 +79,16 @@ def preprocess_function_factory(teacher_tokenizer, student_tokenizer):
 def generate_teacher_logits_factory(teacher_model, device):
     def generate_teacher_logits(batch):
         with torch.no_grad():
-            print("Getting teacher logits...")
             teacher_outputs = teacher_model(
                 input_ids=batch["teacher_input_ids"].to(device)
             )
-            # teacher_logits = teacher_outputs.logits
-        return teacher_outputs.logits  # {"teacher_logits": teacher_logits}
+
+        return teacher_outputs.logits
 
     return generate_teacher_logits
 
 
 def distillation_loss(student_logits, teacher_logits, temperature=2.0):
-    print("Getting loss...")
     soft_teacher = nn.functional.softmax(teacher_logits / temperature, dim=-1)
     soft_student = nn.functional.log_softmax(student_logits / temperature, dim=-1)
 
@@ -105,12 +104,25 @@ def main():
     LEARNING_RATE = 5e-5
     BATCH_SIZE = 16
     TEMPERATURE = 2.0
-    EPOCHS = 3
-
-    device = torch.device("cuda")
+    EPOCHS = 50
+    ES_PATIENCE = 10
+    LR_PATIENCE = 5
+    LR_FACTOR = 0.5
+    DAGSHUB_REPO = "https://dagshub.com/Steven-Herrera/llm-distillation.mlflow"
+    REPO_NAME = "llm-distillation"
 
     teacher_model_name = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
     student_model_name = "distilbert-base-uncased"
+
+    os.environ["MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING"] = "true"
+    os.environ["MLFLOW_TRACKING_URI"] = DAGSHUB_REPO
+    os.environ["MLFLOW_TRACKING_USERNAME"] = REPO_NAME
+    os.environ["MLFLOW_TRACKING_PASSWORD"] = "9ff12398a082a2a66acae1be5ffd8dbf212ccb11"
+
+    mlflow.set_tracking_uri(DAGSHUB_REPO)
+    mlflow.set_experiment("PubMed-DistilBert-Distillation")
+    device = torch.device("cuda")
+
     # use_cache=False enables gradient checkpointing which helps reduce memory usage
     teacher_model = AutoModelForCausalLM.from_pretrained(
         teacher_model_name, use_cache=False
@@ -123,49 +135,73 @@ def main():
     student_tokenizer = AutoTokenizer.from_pretrained(student_model_name)
 
     collate_fn = collate_fn_factory(teacher_tokenizer, student_tokenizer)
-    # preprocess_data = preprocess_function_factory(teacher_tokenizer, student_tokenizer)
     generate_teacher_logits = generate_teacher_logits_factory(teacher_model, device)
 
     biomedical_data = get_biomedical_data()
-
-    # print("Mapping preprocessing fn..")
-    # biomedical_data = biomedical_data.map(preprocess_data, batched=True)
-    # Apply logit generation
-    # print("Mapping Teacher Logits...")
-    # biomedical_data = biomedical_data.map(generate_teacher_logits, batched=True)
 
     dataloader = DataLoader(
         biomedical_data, batch_size=BATCH_SIZE, collate_fn=collate_fn
     )
 
     optimizer = optim.AdamW(student_model.parameters(), lr=LEARNING_RATE)
+    scheduler = ReduceLROnPlateau(
+        optimizer, mode="min", patience=LR_PATIENCE, factor=LR_FACTOR
+    )
+
+    # Early stopping
+    best_loss = float("inf")
+    epochs_without_improvement = 0
 
     print("Starting Training!")
-    for epoch in range(EPOCHS):
-        for batch in tqdm(dataloader, desc=f"Epoch: {epoch}"):
-            teacher_logits = generate_teacher_logits(batch)
-            student_outputs = student_model(
-                input_ids=batch["student_input_ids"].to(device)
+    with mlflow.start_run():
+        mlflow.log_params(
+            {
+                "learning_rate": LEARNING_RATE,
+                "batch_size": BATCH_SIZE,
+                "temperature": TEMPERATURE,
+                "es_patience": ES_PATIENCE,
+                "lr_patience": LR_PATIENCE,
+                "lr_factor": LR_FACTOR,
+                "optimizer": "AdamW",
+            }
+        )
+        for epoch in range(EPOCHS):
+            student_model.train()
+            epoch_loss = 0.0
+            for batch in tqdm(dataloader, desc=f"Epoch: {epoch}"):
+                teacher_logits = generate_teacher_logits(batch)
+                student_outputs = student_model(
+                    input_ids=batch["student_input_ids"].to(device)
+                )
+                student_logits = student_outputs.logits
+                loss = distillation_loss(student_logits, teacher_logits, TEMPERATURE)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+                epoch_loss += loss.item()
+
+            avg_epoch_loss = epoch_loss / len(dataloader)
+            print(f"Epoch {epoch}, Loss: {avg_epoch_loss}")
+
+            mlflow.log_metric("loss", avg_epoch_loss, step=epoch)
+            mlflow.log_metric(
+                "learning_rate", optimizer.param_groups[0]["lr"], step=epoch
             )
-            student_logits = student_outputs.logits
-            loss = distillation_loss(student_logits, teacher_logits, TEMPERATURE)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            # student_outputs = student_model(input_ids=batch["student_input_ids"])
-            # student_logits = student_outputs.logits
 
-            # loss = distillation_loss(
-            #     student_logits, batch["teacher_logits"], TEMPERATURE
-            # )
+            if avg_epoch_loss < best_loss:
+                best_loss = avg_epoch_loss
+                epochs_without_improvement = 0
+                student_model.save_pretrained("distilbert-pubmed-model")
+                student_tokenizer.save_pretrained("distilbert-tokenizer")
+            else:
+                epochs_without_improvement += 1
+                if epochs_without_improvement >= ES_PATIENCE:
+                    print(f"Early stopping at epoch {epoch}!")
+                    break
 
-            # optimizer.zero_grad()
-            # loss.backward()
-
-            print(f"Epoch {epoch}, Loss: {loss.item()}")
-
-    student_model.save_pretrained("distilbert-biomedical")
-    student_tokenizer.save_pretrained("distilbert-biomedical")
+            scheduler.step(avg_epoch_loss)
+        print("Training Complete!")
 
 
 if __name__ == "__main__":

@@ -59,6 +59,10 @@ typing-extensions==4.12.2
     # via huggingface-hub
 urllib3==2.3.0
     # via requests
+tqdm>=4.67.1
+psutil
+pynvml
+nvidia-ml-py
 
 black>=25.1.0
 dagshub>=0.5.4
