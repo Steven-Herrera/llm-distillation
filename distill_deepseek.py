@@ -8,7 +8,7 @@ from tqdm import tqdm
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
-    DistilBertForSequenceClassification,
+    DistilBertForMaskedLM,
 )
 from datasets import load_from_disk
 import torch
@@ -89,6 +89,11 @@ def generate_teacher_logits_factory(teacher_model, device):
 
 
 def distillation_loss(student_logits, teacher_logits, temperature=2.0):
+    if student_logits.shape != teacher_logits.shape:
+        raise ValueError(
+            f"Shape mismatch: student_logits {student_logits.shape}, pooled_teacher_logits {teacher_logits.shape}"
+        )
+
     soft_teacher = nn.functional.softmax(teacher_logits / temperature, dim=-1)
     soft_student = nn.functional.log_softmax(student_logits / temperature, dim=-1)
 
@@ -134,7 +139,7 @@ def main():
     ).to(device)
     teacher_model.gradient_checkpointing_enable()
 
-    student_model = DistilBertForSequenceClassification.from_pretrained(
+    student_model = DistilBertForMaskedLM.from_pretrained(
         student_model_name, torch_dtype=torch.float16
     ).to(device)
 
