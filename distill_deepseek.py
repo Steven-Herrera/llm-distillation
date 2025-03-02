@@ -149,6 +149,8 @@ def main():
     )  # .to(device)
 
     teacher_tokenizer = AutoTokenizer.from_pretrained(teacher_model_name)
+    # Need to explicitly define a padding token or you get a ValueError
+    teacher_tokenizer.pad_token = teacher_tokenizer.eos_token
     student_tokenizer = AutoTokenizer.from_pretrained(student_model_name)
 
     collate_fn = collate_fn_factory(teacher_tokenizer, student_tokenizer)
