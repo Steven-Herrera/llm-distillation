@@ -139,6 +139,7 @@ def main():
         torch_dtype=torch.float16,
         device_map="auto",
         offload_buffers=True,
+        cpu_offload=True,
     )  # .to(device)
     teacher_model.gradient_checkpointing_enable()
 
