@@ -123,7 +123,7 @@ def main():
     student_model_name = "distilbert-base-uncased"
 
     # Initialize accelerator
-    accelerator = Accelerator()
+    accelerator = Accelerator(mixed_precision="fp16")
 
     # Use accelerator.device instead of torch.device
     device = accelerator.device
@@ -139,7 +139,6 @@ def main():
         torch_dtype=torch.float16,
         device_map="auto",
         offload_buffers=True,
-        cpu_offload=True,
     )  # .to(device)
     teacher_model.gradient_checkpointing_enable()
 
@@ -166,8 +165,10 @@ def main():
     )
 
     # Prepare models, optimizer, and dataloader with accelerate
-    teacher_model, student_model, optimizer, dataloader = accelerator.prepare(
-        teacher_model, student_model, optimizer, dataloader
+    teacher_model, student_model, optimizer, dataloader, scheduler = (
+        accelerator.prepare(
+            teacher_model, student_model, optimizer, dataloader, scheduler
+        )
     )
 
     # Early stopping
