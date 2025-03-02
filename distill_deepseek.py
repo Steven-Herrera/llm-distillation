@@ -117,7 +117,8 @@ def main():
     os.environ["MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING"] = "true"
     os.environ["MLFLOW_TRACKING_URI"] = DAGSHUB_REPO
     os.environ["MLFLOW_TRACKING_USERNAME"] = REPO_NAME
-    os.environ["MLFLOW_TRACKING_PASSWORD"] = "9ff12398a082a2a66acae1be5ffd8dbf212ccb11"
+    # os.environ["MLFLOW_TRACKING_PASSWORD"] = "9ff12398a082a2a66acae1be5ffd8dbf212ccb11"
+    os.environ["MLFLOW_TRACKING_PASSWORD"] = "99745cab9ababca4a0beb504aa6faeb006aff8e2"
 
     mlflow.set_tracking_uri(DAGSHUB_REPO)
     mlflow.set_experiment("PubMed-DistilBert-Distillation")
