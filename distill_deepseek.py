@@ -104,7 +104,7 @@ def generate_teacher_logits_factory(teacher_model, device, student_vocab_size):
     teacher_vocab_size = teacher_model.config.vocab_size  # 128_256
     projector = LogitsProjector(
         teacher_vocab_size=teacher_vocab_size, student_vocab_size=student_vocab_size
-    ).to(device)
+    )
 
     def generate_teacher_logits(batch):
         with torch.no_grad():
