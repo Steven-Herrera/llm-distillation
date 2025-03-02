@@ -119,7 +119,8 @@ def main():
     DAGSHUB_REPO = "https://dagshub.com/Steven-Herrera/llm-distillation.mlflow"
     # REPO_NAME = "llm-distillation"
 
-    teacher_model_name = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
+    # teacher_model_name = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
+    teacher_model_name = "meta-llama/Llama-3.2-1B"
     student_model_name = "distilbert-base-uncased"
 
     # Initialize accelerator
