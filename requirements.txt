@@ -62,7 +62,7 @@ urllib3==2.3.0
 tqdm>=4.67.1
 psutil
 pynvml
-nvidia-ml-py
+python-dotenv
 
 black>=25.1.0
 dagshub>=0.5.4

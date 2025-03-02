@@ -2,7 +2,7 @@
 Script for distilling a distilled deepseek llama-3.1 8B model into a DistilBert model
 """
 
-import os
+from dotenv import load_dotenv
 import mlflow
 from tqdm import tqdm
 from transformers import (
@@ -101,6 +101,7 @@ def distillation_loss(student_logits, teacher_logits, temperature=2.0):
 
 
 def main():
+    load_dotenv()
     LEARNING_RATE = 5e-5
     BATCH_SIZE = 16
     TEMPERATURE = 2.0
@@ -109,16 +110,16 @@ def main():
     LR_PATIENCE = 5
     LR_FACTOR = 0.5
     DAGSHUB_REPO = "https://dagshub.com/Steven-Herrera/llm-distillation.mlflow"
-    REPO_NAME = "llm-distillation"
+    # REPO_NAME = "llm-distillation"
 
     teacher_model_name = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
     student_model_name = "distilbert-base-uncased"
 
-    os.environ["MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING"] = "true"
-    os.environ["MLFLOW_TRACKING_URI"] = DAGSHUB_REPO
-    os.environ["MLFLOW_TRACKING_USERNAME"] = REPO_NAME
-    # os.environ["MLFLOW_TRACKING_PASSWORD"] = "9ff12398a082a2a66acae1be5ffd8dbf212ccb11"
-    os.environ["MLFLOW_TRACKING_PASSWORD"] = "99745cab9ababca4a0beb504aa6faeb006aff8e2"
+    # os.environ["MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING"] = "true"
+    # os.environ["MLFLOW_TRACKING_URI"] = DAGSHUB_REPO
+    # os.environ["MLFLOW_TRACKING_USERNAME"] = REPO_NAME
+    # # os.environ["MLFLOW_TRACKING_PASSWORD"] = "9ff12398a082a2a66acae1be5ffd8dbf212ccb11"
+    # os.environ["MLFLOW_TRACKING_PASSWORD"] = "99745cab9ababca4a0beb504aa6faeb006aff8e2"
 
     mlflow.set_tracking_uri(DAGSHUB_REPO)
     mlflow.set_experiment("PubMed-DistilBert-Distillation")
