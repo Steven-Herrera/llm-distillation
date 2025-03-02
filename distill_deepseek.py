@@ -17,6 +17,8 @@ from torch import optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 
+from accelerate import Accelerator
+
 
 def collate_fn_factory(teacher_tokenizer, student_tokenizer):
     """Generates a custom collate function to tokenize and preprocess data on-the-fly during training.
@@ -80,7 +82,7 @@ def generate_teacher_logits_factory(teacher_model, device):
     def generate_teacher_logits(batch):
         with torch.no_grad():
             teacher_outputs = teacher_model(
-                input_ids=batch["teacher_input_ids"].to(device)
+                input_ids=batch["teacher_input_ids"]  # .to(device)
             )
 
         return teacher_outputs.logits
@@ -120,11 +122,11 @@ def main():
     teacher_model_name = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
     student_model_name = "distilbert-base-uncased"
 
-    # os.environ["MLFLOW_ENABLE_SYSTEM_METRICS_LOGGING"] = "true"
-    # os.environ["MLFLOW_TRACKING_URI"] = DAGSHUB_REPO
-    # os.environ["MLFLOW_TRACKING_USERNAME"] = REPO_NAME
-    # # os.environ["MLFLOW_TRACKING_PASSWORD"] = "9ff12398a082a2a66acae1be5ffd8dbf212ccb11"
-    # os.environ["MLFLOW_TRACKING_PASSWORD"] = "99745cab9ababca4a0beb504aa6faeb006aff8e2"
+    # Initialize accelerator
+    accelerator = Accelerator()
+
+    # Use accelerator.device instead of torch.device
+    device = accelerator.device
 
     mlflow.set_tracking_uri(DAGSHUB_REPO)
     mlflow.set_experiment("PubMed-DistilBert-Distillation")
@@ -136,12 +138,12 @@ def main():
         use_cache=False,
         torch_dtype=torch.float16,
         device_map="auto",
-    ).to(device)
+    )  # .to(device)
     teacher_model.gradient_checkpointing_enable()
 
     student_model = DistilBertForMaskedLM.from_pretrained(
         student_model_name, torch_dtype=torch.float16
-    ).to(device)
+    )  # .to(device)
 
     teacher_tokenizer = AutoTokenizer.from_pretrained(teacher_model_name)
     student_tokenizer = AutoTokenizer.from_pretrained(student_model_name)
@@ -158,6 +160,11 @@ def main():
     optimizer = optim.AdamW(student_model.parameters(), lr=LEARNING_RATE)
     scheduler = ReduceLROnPlateau(
         optimizer, mode="min", patience=LR_PATIENCE, factor=LR_FACTOR
+    )
+
+    # Prepare models, optimizer, and dataloader with accelerate
+    teacher_model, student_model, optimizer, dataloader = accelerator.prepare(
+        teacher_model, student_model, optimizer, dataloader
     )
 
     # Early stopping
@@ -177,26 +184,30 @@ def main():
                 "optimizer": "AdamW",
             }
         )
-        scaler = torch.amp.GradScaler()
+        # scaler = torch.amp.GradScaler()
         for epoch in range(EPOCHS):
             student_model.train()
             epoch_loss = 0.0
             for batch in tqdm(dataloader, desc=f"Epoch: {epoch}"):
+                # Move batch to the correct device
+                batch = {k: v.to(accelerator.device) for k, v in batch.items()}
+
                 teacher_logits = generate_teacher_logits(batch)
                 student_outputs = student_model(
-                    input_ids=batch["student_input_ids"].to(device)
+                    input_ids=batch["student_input_ids"]  # .to(device)
                 )
                 student_logits = student_outputs.logits
                 loss = distillation_loss(student_logits, teacher_logits, TEMPERATURE)
                 optimizer.zero_grad()
-                scaler.scale(
-                    loss
-                ).backward()  # Scale the loss and perform backward pass
-                scaler.step(optimizer)  # Update optimizer
-                scaler.update()
+                accelerator.backward(loss)
+                # scaler.scale(
+                #     loss
+                # ).backward()  # Scale the loss and perform backward pass
+                # scaler.step(optimizer)  # Update optimizer
+                # scaler.update()
 
                 # loss.backward()
-                # optimizer.step()
+                optimizer.step()
 
                 epoch_loss += loss.item()
 
