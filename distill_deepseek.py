@@ -20,6 +20,28 @@ from torch.utils.data import DataLoader
 from accelerate import Accelerator
 
 
+class LogitsProjector(nn.Module):
+    """Used to project the logits of the teacher model to the student
+    vocabulary. This will allow smooth knowledge transfer without affecting the student's
+    architecture
+
+    Attributes:
+        projection (Linear): Layer that maps teacher logits to student vocabulary
+    """
+
+    def __init__(self, teacher_vocab_size, student_vocab_size):
+        super().__init__()
+        self.projection = nn.Linear(teacher_vocab_size, student_vocab_size, bias=False)
+
+    def forward(self, teacher_logits):
+        """Applies the projection
+
+        Args:
+            teacher_logits (Tensor): Teacher logits
+        """
+        return self.projection(teacher_logits)
+
+
 def collate_fn_factory(teacher_tokenizer, student_tokenizer):
     """Generates a custom collate function to tokenize and preprocess data on-the-fly during training.
     This will result in more efficient tokenization and preprocessing with less memory usage"""
@@ -78,14 +100,21 @@ def preprocess_function_factory(teacher_tokenizer, student_tokenizer):
     return preprocess_data
 
 
-def generate_teacher_logits_factory(teacher_model, device):
+def generate_teacher_logits_factory(teacher_model, device, student_vocab_size):
+    teacher_vocab_size = teacher_model.config.vocab_size  # 128_256
+    projector = LogitsProjector(
+        teacher_vocab_size=teacher_vocab_size, student_vocab_size=student_vocab_size
+    ).to(device)
+
     def generate_teacher_logits(batch):
         with torch.no_grad():
             teacher_outputs = teacher_model(
                 input_ids=batch["teacher_input_ids"]  # .to(device)
             )
 
-        return teacher_outputs.logits
+        teacher_logits = teacher_outputs.logits
+        student_teacher_logits = projector(teacher_logits)
+        return student_teacher_logits
 
     return generate_teacher_logits
 
@@ -154,7 +183,10 @@ def main():
     student_tokenizer = AutoTokenizer.from_pretrained(student_model_name)
 
     collate_fn = collate_fn_factory(teacher_tokenizer, student_tokenizer)
-    generate_teacher_logits = generate_teacher_logits_factory(teacher_model, device)
+    # generate_teacher_logits = generate_teacher_logits_factory(teacher_model, device)
+    generate_teacher_logits = generate_teacher_logits_factory(
+        teacher_model, device, student_model.config.vocab_size
+    )
 
     biomedical_data = get_biomedical_data()
 
