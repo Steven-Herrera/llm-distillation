@@ -123,7 +123,7 @@ def main():
     student_model_name = "distilbert-base-uncased"
 
     # Initialize accelerator
-    accelerator = Accelerator(offload_buffers=True)
+    accelerator = Accelerator()
 
     # Use accelerator.device instead of torch.device
     device = accelerator.device
@@ -138,11 +138,13 @@ def main():
         use_cache=False,
         torch_dtype=torch.float16,
         device_map="auto",
+        offload_buffers=True,
     )  # .to(device)
     teacher_model.gradient_checkpointing_enable()
 
     student_model = DistilBertForMaskedLM.from_pretrained(
-        student_model_name, torch_dtype=torch.float16
+        student_model_name,
+        torch_dtype=torch.float16,
     )  # .to(device)
 
     teacher_tokenizer = AutoTokenizer.from_pretrained(teacher_model_name)
