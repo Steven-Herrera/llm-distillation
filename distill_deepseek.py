@@ -35,6 +35,100 @@ class LogitsProjector(nn.Module):
         return projected_logits.view(batch_size, seq_len, -1)
 
 
+def collate_fn_factory(teacher_tokenizer, student_tokenizer):
+    """Generates a custom collate function to tokenize and preprocess data on-the-fly during training.
+    This will result in more efficient tokenization and preprocessing with less memory usage"""
+
+    def collate_fn(batch):
+        texts = [item["text"] for item in batch]
+        teacher_inputs = teacher_tokenizer(
+            texts,
+            truncation=True,
+            padding="max_length",
+            max_length=512,
+            return_tensors="pt",
+        )
+        student_inputs = student_tokenizer(
+            texts,
+            truncation=True,
+            padding="max_length",
+            max_length=512,
+            return_tensors="pt",
+        )
+        return {
+            "teacher_input_ids": teacher_inputs["input_ids"],
+            "student_input_ids": student_inputs["input_ids"],
+        }
+
+    return collate_fn
+
+
+def get_biomedical_data():
+    biomedical_data = load_from_disk("/data/stevherr/pubmed_subset")
+    return biomedical_data
+
+
+def preprocess_function_factory(teacher_tokenizer, student_tokenizer):
+    def preprocess_data(examples):
+        teacher_inputs = teacher_tokenizer(
+            examples["text"],
+            truncation=True,
+            padding="max_length",
+            max_length=512,
+            return_tensors="pt",
+        )
+        student_inputs = student_tokenizer(
+            examples["text"],
+            truncation=True,
+            padding="max_length",
+            max_length=512,
+            return_tensors="pt",
+        )
+        output = {
+            "teacher_input_ids": teacher_inputs["input_ids"],
+            "student_input_ids": student_inputs["input_ids"],
+        }
+        return output
+
+    return preprocess_data
+
+
+def generate_teacher_logits_factory(teacher_model, device, student_vocab_size):
+    teacher_vocab_size = teacher_model.config.vocab_size  # 128_256
+    projector = LogitsProjector(
+        teacher_vocab_size=teacher_vocab_size, student_vocab_size=student_vocab_size
+    )
+
+    def generate_teacher_logits(batch):
+        with torch.no_grad():
+            teacher_outputs = teacher_model(
+                input_ids=batch["teacher_input_ids"].to(device)
+            )
+
+        teacher_logits = teacher_outputs.logits.cpu()
+        student_teacher_logits = projector(teacher_logits).to(device)
+        return student_teacher_logits
+
+    return generate_teacher_logits
+
+
+def distillation_loss(student_logits, teacher_logits, temperature=2.0):
+    if student_logits.shape != teacher_logits.shape:
+        raise ValueError(
+            f"Shape mismatch: student_logits {student_logits.shape}, pooled_teacher_logits {teacher_logits.shape}"
+        )
+
+    soft_teacher = nn.functional.softmax(teacher_logits / temperature, dim=-1)
+    soft_student = nn.functional.log_softmax(student_logits / temperature, dim=-1)
+
+    loss = nn.functional.kl_div(
+        soft_student,
+        soft_teacher,
+        reduction="batchmean",
+    ) * (temperature**2)
+    return loss
+
+
 def main():
     load_dotenv()
     LEARNING_RATE = 5e-5
