@@ -168,7 +168,7 @@ def main():
     teacher_tokenizer.pad_token = teacher_tokenizer.eos_token
     student_tokenizer = AutoTokenizer.from_pretrained(student_model_name)
 
-    biomedical_data = load_from_disk("/data2/stevherr/pubmed_subset")
+    biomedical_data = load_from_disk("/data2/stevherr/pubmed_10k")
     collate_fn = collate_fn_factory(teacher_tokenizer, student_tokenizer)
     generate_teacher_logits = generate_teacher_logits_factory(
         teacher_model, device, student_model.config.vocab_size
@@ -230,7 +230,9 @@ def main():
             if avg_epoch_loss < best_loss:
                 best_loss = avg_epoch_loss
                 epochs_without_improvement = 0
-                student_model.save_pretrained("/data2/stevherr/distilbert-pubmed-model")
+                student_model.save_pretrained(
+                    "/data2/stevherr/distilbert-pubmed10k-model"
+                )
                 student_tokenizer.save_pretrained(
                     "/data2/stevherr/distilbert-tokenizer"
                 )
