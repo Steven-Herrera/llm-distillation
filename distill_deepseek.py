@@ -107,7 +107,7 @@ def main():
             epoch_loss = 0.0
 
             for batch in tqdm(dataloader, desc=f"Epoch: {epoch}"):
-                batch = {k: v.to(device) for k, v in batch.items()}
+                # batch = {k: v.to(device) for k, v in batch.items()}
 
                 with torch.no_grad():
                     teacher_logits = teacher_model(
