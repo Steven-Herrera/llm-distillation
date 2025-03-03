@@ -64,6 +64,7 @@ psutil
 pynvml
 python-dotenv
 accelerate>=0.26.0
+torch-sparse==0.6.18
 
 black>=25.1.0
 dagshub>=0.5.4

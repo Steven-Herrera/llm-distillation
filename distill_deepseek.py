@@ -13,6 +13,7 @@ from transformers import (
 from datasets import load_from_disk
 import torch
 from torch import nn
+from torch import sparse
 from torch import optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
@@ -31,15 +32,19 @@ class LogitsProjector(nn.Module):
 
     def __init__(self, teacher_vocab_size, student_vocab_size):
         super().__init__()
-        self.projection = nn.Linear(teacher_vocab_size, student_vocab_size, bias=False)
+        self.teacher_vocab_size = teacher_vocab_size
+        self.student_vocab_size = student_vocab_size
+        self.projection = nn.Parameter(
+            torch.randn(student_vocab_size, teacher_vocab_size)
+        )
 
     def forward(self, teacher_logits):
-        """Applies the projection
-
-        Args:
-            teacher_logits (Tensor): Teacher logits
-        """
-        return self.projection(teacher_logits)
+        # Convert projection matrix to sparse format
+        projection_sparse = self.projection.to_sparse()
+        # Perform sparse matrix multiplication
+        return sparse.mm(projection_sparse, teacher_logits.transpose(0, 1)).transpose(
+            0, 1
+        )
 
 
 def collate_fn_factory(teacher_tokenizer, student_tokenizer):
@@ -109,11 +114,11 @@ def generate_teacher_logits_factory(teacher_model, device, student_vocab_size):
     def generate_teacher_logits(batch):
         with torch.no_grad():
             teacher_outputs = teacher_model(
-                input_ids=batch["teacher_input_ids"]  # .to(device)
+                input_ids=batch["teacher_input_ids"].to(device)
             )
 
-        teacher_logits = teacher_outputs.logits
-        student_teacher_logits = projector(teacher_logits)
+        teacher_logits = teacher_outputs.logits.cpu()
+        student_teacher_logits = projector(teacher_logits).to(device)
         return student_teacher_logits
 
     return generate_teacher_logits
@@ -180,7 +185,9 @@ def main():
     teacher_tokenizer = AutoTokenizer.from_pretrained(teacher_model_name)
     # Need to explicitly define a padding token or you get a ValueError
     teacher_tokenizer.pad_token = teacher_tokenizer.eos_token
-    student_tokenizer = AutoTokenizer.from_pretrained(student_model_name)
+    student_tokenizer = AutoTokenizer.from_pretrained(
+        student_model_name, torch_dtype=torch.float16
+    )
 
     collate_fn = collate_fn_factory(teacher_tokenizer, student_tokenizer)
     # generate_teacher_logits = generate_teacher_logits_factory(teacher_model, device)
@@ -211,6 +218,7 @@ def main():
     epochs_without_improvement = 0
 
     print("Starting Training!")
+    torch.cuda.empty_cache()
     with mlflow.start_run():
         mlflow.log_params(
             {
