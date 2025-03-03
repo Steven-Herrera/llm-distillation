@@ -97,16 +97,16 @@ def generate_teacher_logits_factory(teacher_model, device, student_vocab_size):
     teacher_vocab_size = teacher_model.config.vocab_size  # 128_256
     projector = LogitsProjector(
         teacher_vocab_size=teacher_vocab_size, student_vocab_size=student_vocab_size
-    )
+    ).to(device)  # Move projector to the correct device
 
     def generate_teacher_logits(batch):
         with torch.no_grad():
             teacher_outputs = teacher_model(
                 input_ids=batch["teacher_input_ids"].to(device)
             )
-
-        teacher_logits = teacher_outputs.logits.cpu()
-        student_teacher_logits = projector(teacher_logits).to(device)
+        teacher_logits = teacher_outputs.logits
+        # Project teacher logits to student vocabulary space
+        student_teacher_logits = projector(teacher_logits)
         return student_teacher_logits
 
     return generate_teacher_logits
@@ -115,7 +115,7 @@ def generate_teacher_logits_factory(teacher_model, device, student_vocab_size):
 def distillation_loss(student_logits, teacher_logits, temperature=2.0):
     if student_logits.shape != teacher_logits.shape:
         raise ValueError(
-            f"Shape mismatch: student_logits {student_logits.shape}, pooled_teacher_logits {teacher_logits.shape}"
+            f"Shape mismatch: student_logits {student_logits.shape}, teacher_logits {teacher_logits.shape}"
         )
 
     soft_teacher = nn.functional.softmax(teacher_logits / temperature, dim=-1)
