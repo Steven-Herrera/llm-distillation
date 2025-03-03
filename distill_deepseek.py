@@ -12,7 +12,7 @@ from transformers import (
 )
 from datasets import load_from_disk
 import torch
-from torch import nn, optim, sparse
+from torch import nn, optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from accelerate import Accelerator
@@ -28,10 +28,10 @@ class LogitsProjector(nn.Module):
     def forward(self, teacher_logits):
         batch_size, seq_len, vocab_size = teacher_logits.shape
         teacher_logits_reshaped = teacher_logits.view(-1, vocab_size)
-        projection_sparse = self.projection.to_sparse()
-        projected_logits = sparse.mm(
-            projection_sparse, teacher_logits_reshaped.transpose(0, 1)
-        ).transpose(0, 1)
+        # Perform dense matrix multiplication
+        projected_logits = torch.matmul(
+            teacher_logits_reshaped, self.projection.transpose(0, 1)
+        )
         return projected_logits.view(batch_size, seq_len, -1)
 
 
