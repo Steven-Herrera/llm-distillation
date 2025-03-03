@@ -36,9 +36,6 @@ class LogitsProjector(nn.Module):
 
 
 def collate_fn_factory(teacher_tokenizer, student_tokenizer):
-    """Generates a custom collate function to tokenize and preprocess data on-the-fly during training.
-    This will result in more efficient tokenization and preprocessing with less memory usage"""
-
     def collate_fn(batch):
         texts = [item["text"] for item in batch]
         teacher_inputs = teacher_tokenizer(
@@ -57,7 +54,9 @@ def collate_fn_factory(teacher_tokenizer, student_tokenizer):
         )
         return {
             "teacher_input_ids": teacher_inputs["input_ids"],
+            "teacher_attention_mask": teacher_inputs["attention_mask"],
             "student_input_ids": student_inputs["input_ids"],
+            "student_attention_mask": student_inputs["attention_mask"],
         }
 
     return collate_fn
@@ -102,14 +101,13 @@ def generate_teacher_logits_factory(teacher_model, device, student_vocab_size):
     def generate_teacher_logits(batch):
         with torch.no_grad():
             teacher_outputs = teacher_model(
-                input_ids=batch["teacher_input_ids"].to(device)
+                input_ids=batch["teacher_input_ids"].to(device),
+                attention_mask=batch["teacher_attention_mask"].to(device),
             )
         teacher_logits = teacher_outputs.logits
         # Project teacher logits to student vocabulary space
         student_teacher_logits = projector(teacher_logits)
         return student_teacher_logits
-
-    return generate_teacher_logits
 
 
 def distillation_loss(student_logits, teacher_logits, temperature=2.0):
@@ -134,10 +132,10 @@ def main():
     LEARNING_RATE = 5e-5
     BATCH_SIZE = 8  # Increased batch size to utilize more GPU memory
     TEMPERATURE = 2.0
-    EPOCHS = 50
-    ES_PATIENCE = 10
-    LR_PATIENCE = 5
-    LR_FACTOR = 0.5
+    EPOCHS = 5
+    ES_PATIENCE = 2
+    LR_PATIENCE = 1
+    LR_FACTOR = 0.1
     DAGSHUB_REPO = "https://dagshub.com/Steven-Herrera/llm-distillation.mlflow"
 
     teacher_model_name = "meta-llama/Llama-3.2-1B"
@@ -211,7 +209,8 @@ def main():
 
                 teacher_logits = generate_teacher_logits(batch)
                 student_outputs = student_model(
-                    input_ids=batch["student_input_ids"]  # .to(device)
+                    input_ids=batch["student_input_ids"].to(device),
+                    attention_mask=batch["student_attention_mask"].to(device),
                 )
                 student_logits = student_outputs.logits
                 loss = distillation_loss(student_logits, teacher_logits, TEMPERATURE)
