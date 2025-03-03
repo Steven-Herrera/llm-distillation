@@ -170,6 +170,9 @@ def main():
 
     biomedical_data = load_from_disk("/data2/stevherr/pubmed_subset")
     collate_fn = collate_fn_factory(teacher_tokenizer, student_tokenizer)
+    generate_teacher_logits = generate_teacher_logits_factory(
+        teacher_model, device, student_model.config.vocab_size
+    )
     dataloader = DataLoader(
         biomedical_data, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn
     )
@@ -206,21 +209,12 @@ def main():
             for batch in tqdm(dataloader, desc=f"Epoch: {epoch}"):
                 # batch = {k: v.to(device) for k, v in batch.items()}
 
-                with torch.no_grad():
-                    teacher_logits = teacher_model(
-                        input_ids=batch["teacher_input_ids"].to(device)
-                    ).logits
-
+                teacher_logits = generate_teacher_logits(batch)
                 student_outputs = student_model(
-                    input_ids=batch["student_input_ids"].to(device)
+                    input_ids=batch["student_input_ids"]  # .to(device)
                 )
                 student_logits = student_outputs.logits
-
-                loss = nn.functional.kl_div(
-                    nn.functional.log_softmax(student_logits / TEMPERATURE, dim=-1),
-                    nn.functional.softmax(teacher_logits / TEMPERATURE, dim=-1),
-                    reduction="batchmean",
-                ) * (TEMPERATURE**2)
+                loss = distillation_loss(student_logits, teacher_logits, TEMPERATURE)
 
                 optimizer.zero_grad()
                 accelerator.backward(loss)
