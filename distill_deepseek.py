@@ -109,6 +109,8 @@ def generate_teacher_logits_factory(teacher_model, device, student_vocab_size):
         student_teacher_logits = projector(teacher_logits)
         return student_teacher_logits
 
+    return generate_teacher_logits
+
 
 def distillation_loss(student_logits, teacher_logits, temperature=2.0):
     if student_logits.shape != teacher_logits.shape:
