@@ -169,7 +169,10 @@ def main():
     student_tokenizer = AutoTokenizer.from_pretrained(student_model_name)
 
     biomedical_data = load_from_disk("/data2/stevherr/pubmed_subset")
-    dataloader = DataLoader(biomedical_data, batch_size=BATCH_SIZE, shuffle=True)
+    collate_fn = collate_fn_factory(teacher_tokenizer, student_tokenizer)
+    dataloader = DataLoader(
+        biomedical_data, batch_size=BATCH_SIZE, shuffle=True, collate_fn=collate_fn
+    )
 
     optimizer = optim.AdamW(student_model.parameters(), lr=LEARNING_RATE)
     scheduler = ReduceLROnPlateau(
