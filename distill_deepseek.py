@@ -39,12 +39,17 @@ class LogitsProjector(nn.Module):
         )
 
     def forward(self, teacher_logits):
+        batch_size, seq_len, vocab_size = teacher_logits.shape
+        # Reshape teacher_logits to [batch_size * seq_len, vocab_size]
+        teacher_logits_reshaped = teacher_logits.view(-1, vocab_size)
         # Convert projection matrix to sparse format
         projection_sparse = self.projection.to_sparse()
         # Perform sparse matrix multiplication
-        return sparse.mm(projection_sparse, teacher_logits.transpose(0, 1)).transpose(
-            0, 1
-        )
+        projected_logits = sparse.mm(
+            projection_sparse, teacher_logits_reshaped.transpose(0, 1)
+        ).transpose(0, 1)
+        # Reshape back to [batch_size, seq_len, student_vocab_size]
+        return projected_logits.view(batch_size, seq_len, -1)
 
 
 def collate_fn_factory(teacher_tokenizer, student_tokenizer):
