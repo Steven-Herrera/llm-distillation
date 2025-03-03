@@ -74,7 +74,7 @@ def main():
     teacher_tokenizer.pad_token = teacher_tokenizer.eos_token
     student_tokenizer = AutoTokenizer.from_pretrained(student_model_name)
 
-    biomedical_data = load_from_disk("/data/stevherr/pubmed_subset")
+    biomedical_data = load_from_disk("/data2/stevherr/pubmed_subset")
     dataloader = DataLoader(biomedical_data, batch_size=BATCH_SIZE, shuffle=True)
 
     optimizer = optim.AdamW(student_model.parameters(), lr=LEARNING_RATE)
@@ -138,8 +138,10 @@ def main():
             if avg_epoch_loss < best_loss:
                 best_loss = avg_epoch_loss
                 epochs_without_improvement = 0
-                student_model.save_pretrained("/data/stevherr/distilbert-pubmed-model")
-                student_tokenizer.save_pretrained("/data/stevherr/distilbert-tokenizer")
+                student_model.save_pretrained("/data2/stevherr/distilbert-pubmed-model")
+                student_tokenizer.save_pretrained(
+                    "/data2/stevherr/distilbert-tokenizer"
+                )
             else:
                 epochs_without_improvement += 1
                 if epochs_without_improvement >= ES_PATIENCE:
