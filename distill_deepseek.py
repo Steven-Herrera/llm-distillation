@@ -132,7 +132,7 @@ def distillation_loss(student_logits, teacher_logits, temperature=2.0):
 def main():
     load_dotenv()
     LEARNING_RATE = 5e-5
-    BATCH_SIZE = 16  # Increased batch size to utilize more GPU memory
+    BATCH_SIZE = 8  # Increased batch size to utilize more GPU memory
     TEMPERATURE = 2.0
     EPOCHS = 50
     ES_PATIENCE = 10
