@@ -78,7 +78,7 @@ def collate_fn_factory(teacher_tokenizer, student_tokenizer):
 
 def get_biomedical_data(data_path):
     biomedical_data = load_from_disk(data_path)
-    return biomedical_data.select(range(20_000))
+    return biomedical_data
 
 
 def preprocess_function_factory(teacher_tokenizer, student_tokenizer):
