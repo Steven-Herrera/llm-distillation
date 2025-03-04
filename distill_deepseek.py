@@ -78,7 +78,7 @@ def collate_fn_factory(teacher_tokenizer, student_tokenizer):
 
 def get_biomedical_data():
     biomedical_data = load_from_disk("/data/stevherr/pubmed_subset")
-    return biomedical_data
+    return biomedical_data.select(range(20_000))
 
 
 def preprocess_function_factory(teacher_tokenizer, student_tokenizer):
