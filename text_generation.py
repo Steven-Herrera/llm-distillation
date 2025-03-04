@@ -11,7 +11,12 @@ Functions:
 import argparse
 from dotenv import load_dotenv
 from typing import Tuple, Dict, Any, Optional
-from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+from transformers import (
+    DistilBertForMaskedLM,
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    pipeline,
+)
 from langchain_community.llms import HuggingFacePipeline
 from langchain_core.prompts import ChatPromptTemplate
 import mlflow
@@ -47,8 +52,12 @@ def load_models(
         model (AutoModelForCausalLM): Large Language Model
     """
 
+    if "distilbert" in model_path:
+        model = DistilBertForMaskedLM.from_pretrained(model_path)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(model_path)
+
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
-    model = AutoModelForCausalLM.from_pretrained(model_path)
 
     return (tokenizer, model)
 
