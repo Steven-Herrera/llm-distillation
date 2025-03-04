@@ -9,6 +9,7 @@ Functions:
 """
 
 import argparse
+from dotenv import load_dotenv
 from typing import Tuple, Dict, Any
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 from langchain_community.llms import HuggingFacePipeline
@@ -145,6 +146,7 @@ def main(model_path: str, tokenizer_path: str) -> None:
         model_path (str): Path to a local or HF LLM
         tokenizer_path (str): Path to a local or HF tokenizer
     """
+    load_dotenv()
     DAGSHUB_REPO = "https://dagshub.com/Steven-Herrera/llm-distillation.mlflow"
     mlflow.set_tracking_uri(DAGSHUB_REPO)
     mlflow.set_experiment("LLM Misinformation Detection v1")
