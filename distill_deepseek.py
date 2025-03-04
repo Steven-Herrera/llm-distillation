@@ -2,13 +2,14 @@
 Script for distilling a distilled deepseek llama-3.1 8B model into a DistilBert model
 """
 
+import argparse
 from dotenv import load_dotenv
 import mlflow
 from tqdm import tqdm
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
-    DistilBertForMaskedLM,
+    # DistilBertForMaskedLM,
 )
 from datasets import load_from_disk
 import torch
@@ -16,6 +17,19 @@ from torch import nn, optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from accelerate import Accelerator
+
+parser = argparse.ArgumentParser(
+    prog="LLM Distillation",
+    description="Distill a student LLM from a teacher LLM",
+)
+
+parser.add_argument("-t", "--teacher", required=True, help="Path to a teacher model")
+parser.add_argument("-s", "--student", required=True, help="Path to a student model")
+parser.add_argument("-d", "--data", required=True, help="Path to a dataset")
+parser.add_argument(
+    "-o", "--output", required=True, help="Path to save the student model"
+)
+args = parser.parse_args()
 
 
 class LogitsProjector(nn.Module):
@@ -129,7 +143,7 @@ def distillation_loss(student_logits, teacher_logits, temperature=2.0):
     return loss
 
 
-def main():
+def main(teacher_model_name, student_model_name, data_path, output):
     load_dotenv()
     LEARNING_RATE = 5e-5
     BATCH_SIZE = 8  # Increased batch size to utilize more GPU memory
@@ -140,8 +154,8 @@ def main():
     LR_FACTOR = 0.1
     DAGSHUB_REPO = "https://dagshub.com/Steven-Herrera/llm-distillation.mlflow"
 
-    teacher_model_name = "meta-llama/Llama-3.2-1B"
-    student_model_name = "distilbert-base-uncased"
+    # teacher_model_name = "meta-llama/Llama-3.2-1B"
+    # student_model_name = "distilbert-base-uncased"
 
     accelerator = Accelerator(
         mixed_precision="bf16"
@@ -159,7 +173,7 @@ def main():
     )
     teacher_model.gradient_checkpointing_enable()
 
-    student_model = DistilBertForMaskedLM.from_pretrained(
+    student_model = AutoModelForCausalLM.from_pretrained(
         student_model_name,
         torch_dtype=torch.bfloat16,
     ).to(device)
@@ -168,7 +182,7 @@ def main():
     teacher_tokenizer.pad_token = teacher_tokenizer.eos_token
     student_tokenizer = AutoTokenizer.from_pretrained(student_model_name)
 
-    biomedical_data = load_from_disk("/data2/stevherr/pubmed_10k")
+    biomedical_data = load_from_disk(data_path)
     collate_fn = collate_fn_factory(teacher_tokenizer, student_tokenizer)
     generate_teacher_logits = generate_teacher_logits_factory(
         teacher_model, device, student_model.config.vocab_size
@@ -230,12 +244,10 @@ def main():
             if avg_epoch_loss < best_loss:
                 best_loss = avg_epoch_loss
                 epochs_without_improvement = 0
-                student_model.save_pretrained(
-                    "/data2/stevherr/distilbert-pubmed10k-model"
-                )
-                student_tokenizer.save_pretrained(
-                    "/data2/stevherr/distilbert-tokenizer"
-                )
+                student_model.save_pretrained(output)
+                # student_tokenizer.save_pretrained(
+                #     "/data2/stevherr/distilbert-tokenizer"
+                # )
             else:
                 epochs_without_improvement += 1
                 if epochs_without_improvement >= ES_PATIENCE:
@@ -248,4 +260,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(args.teacher, args.student, args.data, args.output)
