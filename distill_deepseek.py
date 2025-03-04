@@ -76,8 +76,8 @@ def collate_fn_factory(teacher_tokenizer, student_tokenizer):
     return collate_fn
 
 
-def get_biomedical_data():
-    biomedical_data = load_from_disk("/data/stevherr/pubmed_subset")
+def get_biomedical_data(data_path):
+    biomedical_data = load_from_disk(data_path)
     return biomedical_data.select(range(20_000))
 
 
@@ -182,7 +182,7 @@ def main(teacher_model_name, student_model_name, data_path, output):
     teacher_tokenizer.pad_token = teacher_tokenizer.eos_token
     student_tokenizer = AutoTokenizer.from_pretrained(student_model_name)
 
-    biomedical_data = load_from_disk(data_path)
+    biomedical_data = get_biomedical_data(data_path)
     collate_fn = collate_fn_factory(teacher_tokenizer, student_tokenizer)
     generate_teacher_logits = generate_teacher_logits_factory(
         teacher_model, device, student_model.config.vocab_size
