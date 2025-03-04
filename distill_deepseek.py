@@ -207,6 +207,7 @@ def main(teacher_model_name, student_model_name, data_path, output):
 
     print("Starting Training!")
     torch.cuda.empty_cache()
+    mlflow.pytorch.autolog()
     with mlflow.start_run():
         mlflow.log_params(
             {
