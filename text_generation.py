@@ -10,7 +10,7 @@ Functions:
 
 import argparse
 from dotenv import load_dotenv
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Optional
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 from langchain_community.llms import HuggingFacePipeline
 from langchain_core.prompts import ChatPromptTemplate
@@ -25,12 +25,15 @@ parser.add_argument("-m", "--model", required=True, help="Path to a local or HF 
 parser.add_argument(
     "-t", "--tokenizer", required=True, help="Path to a local or HF tokenizer"
 )
+parser.add_argument(
+    "-n", "--run-name", required=False, default=None, help="Name of the run"
+)
 args = parser.parse_args()
 
 
 def load_models(
     model_path: str = "/data2/stevherr/distilbert-pubmed10k-model",
-    tokenizer_path: str = "data2/stevherr/distilbert-tokenizer",
+    tokenizer_path: str = "/data2/stevherr/distilbert-tokenizer",
 ) -> Tuple[AutoTokenizer, AutoModelForCausalLM]:
     """
     Loads a model and its tokenizer.
@@ -138,7 +141,7 @@ def memorization_task(local_llm):
     return response
 
 
-def main(model_path: str, tokenizer_path: str) -> None:
+def main(model_path: str, tokenizer_path: str, run_name: Optional[str]) -> None:
     """
     Runs and tracks experiments, then logs the results to DagsHub.
 
@@ -151,7 +154,7 @@ def main(model_path: str, tokenizer_path: str) -> None:
     mlflow.set_tracking_uri(DAGSHUB_REPO)
     mlflow.set_experiment("LLM Misinformation Detection v1")
 
-    with mlflow.start_run():
+    with mlflow.start_run(run_name=run_name):
         mlflow.log_param("model_path", model_path)
         mlflow.log_param("tokenizer_path", tokenizer_path)
 
@@ -178,4 +181,4 @@ def main(model_path: str, tokenizer_path: str) -> None:
 
 
 if __name__ == "__main__":
-    main(args.model, args.tokenizer)
+    main(args.model, args.tokenizer, args.run_name)
