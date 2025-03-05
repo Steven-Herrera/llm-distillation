@@ -91,7 +91,7 @@ def creative_misinformation_task(local_llm: HuggingFacePipeline) -> Dict[str, An
         },
     ]
 
-    prompt_template = ChatPromptTemplate.from_messages([instructions])
+    prompt_template = ChatPromptTemplate.from_messages(instructions)
     chain = prompt_template | local_llm
 
     responses = {}
