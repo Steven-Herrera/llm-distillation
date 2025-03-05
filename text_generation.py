@@ -161,7 +161,7 @@ def memorization_task(local_llm):
     ]
 
     first_50_words = " ".join(debate_vaccines_thread.split()[:50])
-    tasks = {"text": first_50_words}
+    tasks = [{"text": first_50_words}]
     df = _task_to_df(instructions, tasks)
 
     prompt = ChatPromptTemplate(instructions)
