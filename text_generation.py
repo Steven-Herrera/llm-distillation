@@ -207,11 +207,11 @@ def main(model_path: str, tokenizer_path: str, run_name: Optional[str]) -> None:
         )
 
         local_llm = HuggingFacePipeline(pipeline=text_generation_pipeline)
-        creative_response = creative_misinformation_task(local_llm)
-        memorization_response = memorization_task(local_llm)
+        creative_misinformation_task(local_llm)
+        memorization_task(local_llm)
 
-        mlflow.log_metric("final_creative_response", str(creative_response))
-        mlflow.log_metric("final_memorization_response", memorization_response)
+        # mlflow.log_metric("final_creative_response", str(creative_response))
+        # mlflow.log_metric("final_memorization_response", memorization_response)
 
 
 if __name__ == "__main__":
