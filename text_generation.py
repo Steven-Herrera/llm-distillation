@@ -80,7 +80,7 @@ def _task_to_df(
         "task": [str(task.values()) for task in tasks],
     }
     df = pd.DataFrame.from_dict(data)
-    return df.to_json()
+    return df
 
 
 def creative_misinformation_task(local_llm: HuggingFacePipeline) -> Dict[str, Any]:
