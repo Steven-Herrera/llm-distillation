@@ -121,7 +121,7 @@ def creative_misinformation_task(local_llm: HuggingFacePipeline) -> Dict[str, An
     responses = []
     for task in tasks:
         response = chain.invoke(task)
-        response.append(response)
+        responses.append(response)
 
         # mlflow.log_metric("creative_misinformation_prompt", task["task"])
         # mlflow.log_metric("creative_misinformation_response", response)
