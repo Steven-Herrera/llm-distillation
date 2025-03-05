@@ -123,7 +123,7 @@ def creative_misinformation_task(local_llm: HuggingFacePipeline) -> Dict[str, An
 
         # mlflow.log_metric("creative_misinformation_prompt", task["task"])
         # mlflow.log_metric("creative_misinformation_response", response)
-        mlflow.log_table(df, artifact_file="creative_misinformation_task")
+        mlflow.log_table(data=df, artifact_file="creative_misinformation_task")
 
     return response
 
@@ -170,7 +170,7 @@ def memorization_task(local_llm):
 
     # mlflow.log_metric("memorization_prompt", tasks["text"])
     # mlflow.log_metric("memorization_response", response)
-    mlflow.log_table(df, artifact_file="memorization_taks")
+    mlflow.log_table(data=df, artifact_file="memorization_taks")
 
     return response
 
