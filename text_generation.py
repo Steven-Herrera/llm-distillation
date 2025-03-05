@@ -73,8 +73,10 @@ def _task_to_df(
     Returns:
 
     """
+    system_prompt = instructions[0][0]
+    num_tasks = len(tasks)
     data = {
-        "instruction": [tup[1] for tup in instructions if tup[0] == "system"],
+        "instruction": [system_prompt for _ in range(num_tasks)],
         "task": [str(task.values()) for task in tasks],
     }
     df = pd.DataFrame.from_dict(data)
