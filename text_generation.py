@@ -64,7 +64,9 @@ def load_models(
 
 
 def _task_to_df(
-    instructions: List[Tuple[str, str]], tasks: List[Dict[str, str]]
+    instructions: List[Tuple[str, str]],
+    tasks: List[Dict[str, str]],
+    responses: List[str],
 ) -> pd.DataFrame:
     """Coverts instructions and task to a dataframe that can be saved using mlflow
 
@@ -78,6 +80,7 @@ def _task_to_df(
     data = {
         "instruction": [system_prompt for _ in range(num_tasks)],
         "task": [v for task in tasks for v in task.values()],
+        "response": responses,
     }
     df = pd.DataFrame.from_dict(data)
     return df
@@ -115,14 +118,14 @@ def creative_misinformation_task(local_llm: HuggingFacePipeline) -> Dict[str, An
     prompt_template = ChatPromptTemplate.from_messages(instructions)
     chain = prompt_template | local_llm
 
-    responses = {}
+    responses = []
     for task in tasks:
         response = chain.invoke(task)
-        responses[task["task"]] = response
+        response.append(response)
 
         # mlflow.log_metric("creative_misinformation_prompt", task["task"])
         # mlflow.log_metric("creative_misinformation_response", response)
-    df = _task_to_df(instructions, tasks)
+    df = _task_to_df(instructions, tasks, responses)
     mlflow.log_table(data=df, artifact_file="creative_misinformation_task.json")
 
     return response
@@ -165,11 +168,13 @@ def memorization_task(local_llm):
 
     prompt = ChatPromptTemplate(instructions)
     chain = prompt | local_llm
+    responses = []
     response = chain.invoke(tasks)
+    responses.append(response)
 
     # mlflow.log_metric("memorization_prompt", tasks["text"])
     # mlflow.log_metric("memorization_response", response)
-    df = _task_to_df(instructions, tasks)
+    df = _task_to_df(instructions, tasks, responses)
     mlflow.log_table(data=df, artifact_file="memorization_taks.json")
 
     return response
