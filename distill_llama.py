@@ -67,6 +67,8 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
         config.student_model,
         torch_dtype=torch.bfloat16,
     ).to(device)
+    # Enable gradient checkpointing for the student model
+    student_model.gradient_checkpointing_enable()
     student_tokenizer = AutoTokenizer.from_pretrained(config.student_model)
     # Set padding token for the student tokenizer
     if student_tokenizer.pad_token is None:
