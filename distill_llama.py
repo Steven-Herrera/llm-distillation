@@ -94,7 +94,11 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
 
     biomedical_data = get_biomedical_data(config.data.path)
 
-    collate_fn = collate_fn_factory(teacher_tokenizer, student_tokenizer)
+    collate_fn = collate_fn_factory(
+        teacher_tokenizer,
+        student_tokenizer,
+        max_length=config.training.max_token_length,
+    )
     generate_teacher_logits = generate_teacher_logits_factory(teacher_model)
     dataloader = DataLoader(
         biomedical_data,

@@ -49,29 +49,29 @@ def collate_fn_factory(teacher_tokenizer, student_tokenizer, max_length=2_048):
     return collate_fn
 
 
-def preprocess_function_factory(teacher_tokenizer, student_tokenizer):
-    def preprocess_data(examples):
-        teacher_inputs = teacher_tokenizer(
-            examples["text"],
-            truncation=True,
-            padding="max_length",
-            max_length=512,
-            return_tensors="pt",
-        )
-        student_inputs = student_tokenizer(
-            examples["text"],
-            truncation=True,
-            padding="max_length",
-            max_length=512,
-            return_tensors="pt",
-        )
-        output = {
-            "teacher_input_ids": teacher_inputs["input_ids"],
-            "student_input_ids": student_inputs["input_ids"],
-        }
-        return output
+# def preprocess_function_factory(teacher_tokenizer, student_tokenizer):
+#     def preprocess_data(examples):
+#         teacher_inputs = teacher_tokenizer(
+#             examples["text"],
+#             truncation=True,
+#             padding="max_length",
+#             max_length=512,
+#             return_tensors="pt",
+#         )
+#         student_inputs = student_tokenizer(
+#             examples["text"],
+#             truncation=True,
+#             padding="max_length",
+#             max_length=512,
+#             return_tensors="pt",
+#         )
+#         output = {
+#             "teacher_input_ids": teacher_inputs["input_ids"],
+#             "student_input_ids": student_inputs["input_ids"],
+#         }
+#         return output
 
-    return preprocess_data
+#     return preprocess_data
 
 
 def generate_teacher_logits_factory(teacher_model):

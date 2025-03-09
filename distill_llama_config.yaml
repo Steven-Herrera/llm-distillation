@@ -1,5 +1,5 @@
-teacher_model: "meta-llama/Meta-Llama-3-8B"
-student_model: "meta-llama/Llama-3.2-1B"
+teacher_model: "openai-community/gpt2-medium"
+student_model: "openai-community/gpt2"
 
 training:
   batch_size: 4
@@ -11,6 +11,7 @@ training:
   temperature: 2.0
   # num workers based on CPU cores
   num_workers: 48
+  max_token_length: 2048
 
 dagshub:
   dagshub_repo: "https://dagshub.com/Steven-Herrera/llm-distillation.mlflow"
