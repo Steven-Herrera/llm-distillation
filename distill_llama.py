@@ -137,5 +137,5 @@ def main(config: DictConfig, deepspeed_config: str):
 
 
 if __name__ == "__main__":
-    config = get_config()
-    main(config)
+    config, deepspeed_config = get_config()
+    main(config, deepspeed_config)
