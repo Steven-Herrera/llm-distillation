@@ -9,6 +9,7 @@ dependencies = [
     "deepspeed>=0.16.4",
     "langchain-community>=0.3.18",
     "omegaconf>=2.3.0",
+    "peft>=0.14.0",
     "python-dotenv>=1.0.1",
     "scikit-learn>=1.6.1",
     "tqdm>=4.67.1",

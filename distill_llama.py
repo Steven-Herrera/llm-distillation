@@ -14,6 +14,7 @@ from transformers import (
 import deepspeed
 import torch
 from torch.utils.data import DataLoader
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from utils import (
     get_biomedical_data,
     generate_teacher_logits_factory,
@@ -67,6 +68,23 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
         config.student_model,
         torch_dtype=torch.bfloat16,
     ).to(device)
+
+    # Prepare the student model for 4-bit training (if using quantization)
+    student_model = prepare_model_for_kbit_training(student_model)
+
+    # Define LoRA configuration
+    lora_config = LoraConfig(
+        r=8,  # Rank of the low-rank matrices
+        lora_alpha=32,  # Scaling factor for LoRA weights
+        target_modules=["q_proj", "v_proj"],  # Target modules for LoRA
+        lora_dropout=0.1,  # Dropout for LoRA layers
+        bias="none",  # No bias for LoRA
+        task_type="CAUSAL_LM",  # Task type (causal language modeling)
+    )
+
+    # Apply LoRA to the student model
+    student_model = get_peft_model(student_model, lora_config)
+
     # Enable gradient checkpointing for the student model
     student_model.gradient_checkpointing_enable()
     student_tokenizer = AutoTokenizer.from_pretrained(config.student_model)
@@ -133,7 +151,9 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
             if avg_epoch_loss < best_loss:
                 best_loss = avg_epoch_loss
                 epochs_without_improvement = 0
-                model_engine.save_checkpoint(config.output)  # Save using DeepSpeed
+                model_engine.save_checkpoint(
+                    config.output, save_adapter=True
+                )  # Save using DeepSpeed
 
             else:
                 epochs_without_improvement += 1
