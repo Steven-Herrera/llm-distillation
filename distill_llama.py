@@ -68,6 +68,9 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
         torch_dtype=torch.bfloat16,
     ).to(device)
     student_tokenizer = AutoTokenizer.from_pretrained(config.student_model)
+    # Set padding token for the student tokenizer
+    if student_tokenizer.pad_token is None:
+        student_tokenizer.pad_token = student_tokenizer.eos_token
 
     biomedical_data = get_biomedical_data(config.data.path)
 
