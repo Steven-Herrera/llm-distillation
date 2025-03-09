@@ -52,6 +52,10 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
     """
     load_dotenv()
 
+    # Set the device for this process
+    torch.cuda.set_device(local_rank)
+    device = torch.device(f"cuda:{local_rank}")
+
     mlflow.set_tracking_uri(config.dagshub.dagshub_repo)
     mlflow.set_experiment(config.dagshub.experiment_name)
 
@@ -62,7 +66,7 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
     student_model = AutoModelForCausalLM.from_pretrained(
         config.student_model,
         torch_dtype=torch.bfloat16,
-    )
+    ).to(device)
     student_tokenizer = AutoTokenizer.from_pretrained(config.student_model)
 
     biomedical_data = get_biomedical_data(config.data.path)
@@ -81,7 +85,6 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
         model=student_model,
         model_parameters=student_model.parameters(),
         config=deepspeed_config,
-        local_rank=local_rank,
     )
 
     best_loss = float("inf")
