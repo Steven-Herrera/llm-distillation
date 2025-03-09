@@ -93,9 +93,8 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
     print("Starting Training!")
     torch.cuda.empty_cache()
 
-    params = {"teacher": config.teacher_model, "student": config.student_model}.update(
-        config.training
-    )
+    params = {"teacher": config.teacher_model, "student": config.student_model}
+    params.update(config.training)
 
     with mlflow.start_run():
         mlflow.log_params(params)
