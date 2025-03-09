@@ -35,13 +35,16 @@ def get_config():
     parser.add_argument(
         "--deepspeed_config", required=True, help="Path to DeepSpeed configuration JSON"
     )
+    parser.add_argument(
+        "--local_rank", type=int, default=-1, help="Local rank passed by DeepSpeed"
+    )
     args = parser.parse_args()
 
     config = OmegaConf.load(args.config)
-    return config, args.deepspeed_config
+    return config, args
 
 
-def main(config: DictConfig, deepspeed_config: str):
+def main(config: DictConfig, deepspeed_config: str, local_rank: int):
     """Distills a Llama 1B model from a Llama 8B model
 
     Args:
@@ -78,6 +81,7 @@ def main(config: DictConfig, deepspeed_config: str):
         model=student_model,
         model_parameters=student_model.parameters(),
         config=deepspeed_config,
+        local_rank=local_rank,
     )
 
     best_loss = float("inf")
@@ -137,5 +141,5 @@ def main(config: DictConfig, deepspeed_config: str):
 
 
 if __name__ == "__main__":
-    config, deepspeed_config = get_config()
-    main(config, deepspeed_config)
+    config, args = get_config()
+    main(config, args.deepspeed_config, args.local_rank)
