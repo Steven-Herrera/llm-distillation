@@ -6,10 +6,10 @@ from datasets import load_from_disk
 from transformers import BitsAndBytesConfig, AutoTokenizer, AutoModelForCausalLM
 
 
-def get_biomedical_data(data_path, range=None):
+def get_biomedical_data(data_path, num_points):
     biomedical_data = load_from_disk(data_path)
     if range is not None:
-        biomedical_data = biomedical_data.select(range(range))
+        biomedical_data = biomedical_data.select(range(num_points))
     return biomedical_data
 
 
