@@ -2,7 +2,7 @@ teacher_model: "openai-community/gpt2-medium"
 student_model: "openai-community/gpt2"
 
 training:
-  batch_size: 8
+  batch_size: 40
   learning_rate: 0.00005
   epochs: 5
   early_stopping_patience: 2
