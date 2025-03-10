@@ -47,7 +47,7 @@ def get_config():
 
 
 def main(config: DictConfig, deepspeed_config: str, local_rank: int):
-    """Distills a Llama 1B model from a Llama 8B model
+    """Distills a student model from a larger teacher model
 
     Args:
         config (str): Filepath to a configuration YAML file
@@ -157,7 +157,7 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
                 best_loss = avg_epoch_loss
                 epochs_without_improvement = 0
                 model_engine.save_checkpoint(config.output)  # , save_adapter=True
-                # )  # Save using DeepSpeed
+                # )  # Save using DeepSpeed when using PEFT
 
             else:
                 epochs_without_improvement += 1
