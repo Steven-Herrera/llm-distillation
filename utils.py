@@ -11,7 +11,9 @@ def get_biomedical_data(data_path):
     return biomedical_data
 
 
-def collate_fn_factory(teacher_tokenizer, student_tokenizer, max_length=2_048):
+def collate_fn_factory(
+    teacher_tokenizer, student_tokenizer, max_length=2_048, device=None
+):
     """Helpful for faster data preprocessing. max_length of 2,048 corresponds to a Llama model
 
     Args:
@@ -39,6 +41,11 @@ def collate_fn_factory(teacher_tokenizer, student_tokenizer, max_length=2_048):
             max_length=max_length,
             return_tensors="pt",
         )
+
+        if device is not None:
+            teacher_inputs = {k: v.to(device) for k, v in teacher_inputs.items()}
+            student_inputs = {k: v.to(device) for k, v in student_inputs.items()}
+
         return {
             "teacher_input_ids": teacher_inputs["input_ids"],
             "teacher_attention_mask": teacher_inputs["attention_mask"],
@@ -74,9 +81,10 @@ def collate_fn_factory(teacher_tokenizer, student_tokenizer, max_length=2_048):
 #     return preprocess_data
 
 
-def generate_teacher_logits_factory(teacher_model):
+def generate_teacher_logits_factory(teacher_model, device):
     def generate_teacher_logits(batch):
         with torch.no_grad():
+            batch = {k: v.to(device) for k, v in batch.items()}
             teacher_outputs = teacher_model(
                 input_ids=batch["teacher_input_ids"],
                 attention_mask=batch["teacher_attention_mask"],
@@ -105,7 +113,7 @@ def distillation_loss(student_logits, teacher_logits, temperature=2.0):
     return loss
 
 
-def load_quantized_teacher(teacher_model: str, device_map: str = "auto"):
+def load_quantized_teacher(teacher_model: str, device_map: str = "auto", device=None):
     bnb_config_4bit = BitsAndBytesConfig(
         load_in_4bit=True,  # Enable 4-bit quantization
         bnb_4bit_use_double_quant=True,  # Use double quantization for better memory efficiency
@@ -120,6 +128,10 @@ def load_quantized_teacher(teacher_model: str, device_map: str = "auto"):
         use_cache=False,
         device_map=device_map,
     )
+
+    if device is not None:
+        model.to(device)
+
     print(f"4Bit Model size: {model.get_memory_footprint():,} bytes")
 
     tokenizer = AutoTokenizer.from_pretrained(teacher_model)

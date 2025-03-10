@@ -61,7 +61,9 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
     mlflow.set_tracking_uri(config.dagshub.dagshub_repo)
     mlflow.set_experiment(config.dagshub.experiment_name)
 
-    teacher_model, teacher_tokenizer = load_quantized_teacher(config.teacher_model)
+    teacher_model, teacher_tokenizer = load_quantized_teacher(
+        config.teacher_model, device=device
+    )
     teacher_model.gradient_checkpointing_enable()
     teacher_tokenizer.pad_token = teacher_tokenizer.eos_token
 
@@ -99,8 +101,9 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
         teacher_tokenizer,
         student_tokenizer,
         max_length=config.training.max_token_length,
+        device=device,
     )
-    generate_teacher_logits = generate_teacher_logits_factory(teacher_model)
+    generate_teacher_logits = generate_teacher_logits_factory(teacher_model, device)
     dataloader = DataLoader(
         biomedical_data,
         batch_size=config.training.batch_size,
