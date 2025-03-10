@@ -95,7 +95,7 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
     if student_tokenizer.pad_token is None:
         student_tokenizer.pad_token = student_tokenizer.eos_token
 
-    biomedical_data = get_biomedical_data(config.data.path)
+    biomedical_data = get_biomedical_data(config.data.path, config.data.range)
 
     collate_fn = collate_fn_factory(
         teacher_tokenizer,
