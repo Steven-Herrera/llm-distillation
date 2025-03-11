@@ -93,7 +93,9 @@ def _task_to_df(
     return df
 
 
-def creative_misinformation_task(local_llm: HuggingFacePipeline) -> Dict[str, Any]:
+def creative_misinformation_task(
+    local_llm: HuggingFacePipeline, model_name: str
+) -> Dict[str, Any]:
     """
     A task to qualitatively see how well an LLM performs at generating medical misinformation.
 
@@ -130,15 +132,15 @@ def creative_misinformation_task(local_llm: HuggingFacePipeline) -> Dict[str, An
         response = chain.invoke(task)
         responses.append(response)
 
-        # mlflow.log_metric("creative_misinformation_prompt", task["task"])
-        # mlflow.log_metric("creative_misinformation_response", response)
     df = _task_to_df(instructions, tasks, responses)
-    mlflow.log_table(data=df, artifact_file="creative_misinformation_task.json")
+    mlflow.log_table(
+        data=df, artifact_file=f"{model_name}_creative_misinformation_task.json"
+    )
 
     return response
 
 
-def memorization_task(local_llm):
+def memorization_task(local_llm, model_name: str):
     """A task to qualitatively see how well an LLM memorizes training information.
 
     The `debate_vaccines_thread` text was posted in 2022 by a reddit user from the reddit thread
@@ -182,7 +184,7 @@ def memorization_task(local_llm):
     # mlflow.log_metric("memorization_prompt", tasks["text"])
     # mlflow.log_metric("memorization_response", response)
     df = _task_to_df(instructions, tasks, responses)
-    mlflow.log_table(data=df, artifact_file="memorization_taks.json")
+    mlflow.log_table(data=df, artifact_file=f"{model_name}_memorization_taks.json")
 
     return response
 
@@ -235,11 +237,11 @@ def main(config: DictConfig) -> None:
 
         local_llm = HuggingFacePipeline(pipeline=text_generation_pipeline)
         local_distilled_llm = HuggingFacePipeline(pipeline=distilled_pipeline)
-        creative_misinformation_task(local_llm)
-        memorization_task(local_llm)
+        creative_misinformation_task(local_llm, config.teacher_model)
+        memorization_task(local_llm, config.teacher_model)
 
-        creative_misinformation_task(local_distilled_llm)
-        memorization_task(local_distilled_llm)
+        creative_misinformation_task(local_distilled_llm, config.student_model)
+        memorization_task(local_distilled_llm, config.student_model)
 
         # mlflow.log_metric("final_creative_response", str(creative_response))
         # mlflow.log_metric("final_memorization_response", memorization_response)
