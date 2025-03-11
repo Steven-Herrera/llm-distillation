@@ -25,7 +25,7 @@ data:
 
 prompting:
   experiment_name: "Misinformation Detection"
-  distilled_model_path: "/data/stevherr/loaded_models/pytorch_model.bin"
+  distilled_model_path: "/data/stevherr/loaded_models/"
   top_p: 0.9
   max_new_tokens: 100
 

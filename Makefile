@@ -8,4 +8,4 @@ create-model:
 	python zero_to_fp32.py $(CHECKPOINT_DIR) $(OUTPUT_FILE)
 
 prompt:
-	python text_generation --config distill_llama_config.yaml
+	python text_generation.py --config distill_llama_config.yaml
