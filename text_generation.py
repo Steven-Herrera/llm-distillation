@@ -9,11 +9,12 @@ Functions:
 """
 
 import argparse
+from omegaconf import OmegaConf, DictConfig
 import pandas as pd
+import torch
 from dotenv import load_dotenv
-from typing import Tuple, Dict, Any, Optional, List
+from typing import Tuple, Dict, Any, List
 from transformers import (
-    DistilBertForMaskedLM,
     AutoModelForCausalLM,
     AutoTokenizer,
     pipeline,
@@ -22,24 +23,35 @@ from langchain_community.llms import HuggingFacePipeline
 from langchain_core.prompts import ChatPromptTemplate
 import mlflow
 
-parser = argparse.ArgumentParser(
-    prog="LLM Misinformation Detection",
-    description="Experiments to see if an LLM has learned misinformation.",
-)
 
-parser.add_argument("-m", "--model", required=True, help="Path to a local or HF model")
-parser.add_argument(
-    "-t", "--tokenizer", required=True, help="Path to a local or HF tokenizer"
-)
-parser.add_argument(
-    "-n", "--run-name", required=False, default=None, help="Name of the run"
-)
-args = parser.parse_args()
+def get_args():
+    parser = argparse.ArgumentParser(
+        prog="LLM Misinformation Detection",
+        description="Experiments to see if an LLM has learned misinformation.",
+    )
+
+    parser.add_argument(
+        "-c", "--config", required=True, help="Path to a YAML config file"
+    )
+    args = parser.parse_args()
+    config = OmegaConf.load(args.config)
+    return config
 
 
-def load_models(
-    model_path: str = "/data2/stevherr/distilbert-pubmed10k-model",
-    tokenizer_path: str = "/data2/stevherr/distilbert-tokenizer",
+def load_distilled_model(
+    model_name, states_path: str = "/data/stevherr/loaded_models/pytorch_model.bin"
+):
+    """Loads a distilled model"""
+    model = AutoModelForCausalLM.from_pretrained(model_name)
+    model.load_state_dict(torch.load(states_path))
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model.eval()
+
+    return (model, tokenizer)
+
+
+def load_model(
+    model_path,
 ) -> Tuple[AutoTokenizer, AutoModelForCausalLM]:
     """
     Loads a model and its tokenizer.
@@ -52,13 +64,8 @@ def load_models(
         tokenizer (AutoTokenizer): Tokenizer
         model (AutoModelForCausalLM): Large Language Model
     """
-
-    if "distilbert" in model_path:
-        model = DistilBertForMaskedLM.from_pretrained(model_path)
-    else:
-        model = AutoModelForCausalLM.from_pretrained(model_path)
-
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+    model = AutoModelForCausalLM.from_pretrained(model_path)
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
 
     return (tokenizer, model)
 
@@ -180,7 +187,8 @@ def memorization_task(local_llm):
     return response
 
 
-def main(model_path: str, tokenizer_path: str, run_name: Optional[str]) -> None:
+# def main(model_path: str, tokenizer_path: str, run_name: Optional[str]) -> None:
+def main(config: DictConfig) -> None:
     """
     Runs and tracks experiments, then logs the results to DagsHub.
 
@@ -189,35 +197,51 @@ def main(model_path: str, tokenizer_path: str, run_name: Optional[str]) -> None:
         tokenizer_path (str): Path to a local or HF tokenizer
     """
     load_dotenv()
-    DAGSHUB_REPO = "https://dagshub.com/Steven-Herrera/llm-distillation.mlflow"
-    mlflow.set_tracking_uri(DAGSHUB_REPO)
-    mlflow.set_experiment("LLM Misinformation Detection v1")
+    # DAGSHUB_REPO = "https://dagshub.com/Steven-Herrera/llm-distillation.mlflow"
+    mlflow.set_tracking_uri(config.dagshub.dagshub_repo)
+    mlflow.set_experiment(config.prompting.experiment_name)
 
-    with mlflow.start_run(run_name=run_name):
-        mlflow.log_param("model_path", model_path)
-        mlflow.log_param("tokenizer_path", tokenizer_path)
+    with mlflow.start_run():
+        # mlflow.log_param("model_path", model_path)
+        # mlflow.log_param("tokenizer_path", tokenizer_path)
 
-        tokenizer, model = load_models(model_path, tokenizer_path)
+        tokenizer, model = load_model(config.teacher_model)
+        distilled_model = load_distilled_model(config.prompting.distilled_model_path)
 
         text_generation_pipeline = pipeline(
             "text-generation",
             model=model,
             tokenizer=tokenizer,
             # device="cuda",
-            max_length=512,
-            temperature=2.0,
-            top_p=0.9,
-            max_new_tokens=100,
+            max_length=config.training.max_token_length,
+            temperature=config.training.temperature,
+            top_p=config.prompting.top_p,
+            max_new_tokens=config.prompting.max_new_tokens,
+            device_map="auto",
+        )
+
+        distilled_pipeline = pipeline(
+            model=distilled_model,
+            tokenizer=tokenizer,
+            max_length=config.training.max_token_length,
+            temperature=config.training.temperature,
+            top_p=config.prompting.top_p,
+            max_new_tokens=config.prompting.max_new_tokens,
             device_map="auto",
         )
 
         local_llm = HuggingFacePipeline(pipeline=text_generation_pipeline)
+        local_distilled_llm = HuggingFacePipeline(pipeline=distilled_pipeline)
         creative_misinformation_task(local_llm)
         memorization_task(local_llm)
+
+        creative_misinformation_task(local_distilled_llm)
+        memorization_task(local_distilled_llm)
 
         # mlflow.log_metric("final_creative_response", str(creative_response))
         # mlflow.log_metric("final_memorization_response", memorization_response)
 
 
 if __name__ == "__main__":
-    main(args.model, args.tokenizer, args.run_name)
+    config = get_args()
+    main(config)

@@ -23,4 +23,10 @@ data:
   # select first `range` number of data points
   range: 350000
 
+prompting:
+  experiment_name: "Misinformation Detection"
+  distilled_model_path: "/data/stevherr/loaded_models/pytorch_model.bin"
+  top_p: 0.9
+  max_new_tokens: 100
+
 output: "/data/stevherr/models"
