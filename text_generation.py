@@ -205,7 +205,9 @@ def main(config: DictConfig) -> None:
         # mlflow.log_param("tokenizer_path", tokenizer_path)
 
         tokenizer, model = load_model(config.teacher_model)
-        distilled_model = load_distilled_model(config.prompting.distilled_model_path)
+        distilled_model = load_distilled_model(
+            config.student_model, config.prompting.distilled_model_path
+        )
 
         text_generation_pipeline = pipeline(
             "text-generation",
