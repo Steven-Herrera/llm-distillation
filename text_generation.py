@@ -44,10 +44,9 @@ def load_distilled_model(
     """Loads a distilled model"""
     model = AutoModelForCausalLM.from_pretrained(model_name)
     model.load_state_dict(torch.load(states_path))
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
     model.eval()
 
-    return (model, tokenizer)
+    return model
 
 
 def load_model(
