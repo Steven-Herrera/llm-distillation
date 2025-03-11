@@ -21,6 +21,7 @@ from transformers import (
 )
 from langchain_community.llms import HuggingFacePipeline
 from langchain_core.prompts import ChatPromptTemplate
+
 import mlflow
 
 
@@ -222,6 +223,7 @@ def main(config: DictConfig) -> None:
         )
 
         distilled_pipeline = pipeline(
+            task="text-generation",
             model=distilled_model,
             tokenizer=tokenizer,
             max_length=config.training.max_token_length,
