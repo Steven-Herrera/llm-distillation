@@ -4,7 +4,7 @@ infllm:
   max_gen: 512
   conv_type: "llama-3-inst"
   chunk_size: 8192
-  truncation: False
+  truncation: null
 
 teacher_model: "openai-community/gpt2-medium"
 student_model: "openai-community/gpt2"
