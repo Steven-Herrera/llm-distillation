@@ -1,15 +1,15 @@
 """Preprocess the pubmed dataset so it can be passed to InfLLM"""
 
-from datasets import load_from_disk
 import sys
+import torch
+import argparse
 
 # from InfLLM library
 sys.path.append("/home/stevherr/InfLLM")
 from benchmark.pred import get_pred
 from omegaconf import OmegaConf, DictConfig
-import argparse
-import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from utils import get_biomedical_data
 
 
 def get_args():
@@ -31,7 +31,7 @@ def main(config: DictConfig):
     """Perform preprocessing"""
 
     # Load the dataset
-    dataset = load_from_disk(config.data.path)
+    dataset = get_biomedical_data(config.data.path, config.data.range)
 
     # Extract the "text" field
     text_dataset = dataset.map(lambda x: {"text": x["text"]})
@@ -43,8 +43,8 @@ def main(config: DictConfig):
     )
     tokenizer = AutoTokenizer.from_pretrained(config.infllm.model_name)
 
-    prompt_format = """You are an LLM receiving biomedical data and your job is to learn everything you can from it.
-
+    prompt_format = """You are an LLM receiving biomedical data and your job is to learn
+    everything you can from it.
     {context}
     """
     # Process each text in the dataset
