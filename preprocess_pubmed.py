@@ -34,14 +34,7 @@ def main(config: DictConfig):
     dataset = get_biomedical_data(config.data.path, config.data.range)
 
     # Extract the "text" field
-    text_dataset = dataset.map(
-        lambda x: {
-            "text": x["text"],
-            "answers": None,
-            "all_classes": None,
-            "length": None,
-        }
-    )
+    text_dataset = dataset.map(lambda x: {"text": x["text"]})
 
     # Load the model and tokenizer
     # config = OmegaConf.load("config/llama-3-inf-llm.yaml")
@@ -75,7 +68,7 @@ def main(config: DictConfig):
             model=model,
             tokenizer=tokenizer,
             data=[
-                {"context": text}
+                {"context": text, "answers": None, "all_classes": None, "length": None}
             ],  # Wrap the text in a dictionary with the "context" key
             max_length=config.infllm.max_len,
             max_gen=config.infllm.max_gen,  # Adjust based on your needs
