@@ -43,6 +43,18 @@ def main(config: DictConfig):
     )
     tokenizer = AutoTokenizer.from_pretrained(config.infllm.model_name)
 
+    if tokenizer.chat_template is None:
+        # Example chat template for LLaMA-3
+        llama3_chat_template = (
+            "{% for message in messages %}"
+            "{{ '<|start_header_id|>' + message['role'] + '<|end_header_id|>' + '\n\n' + message['content'] + '<|eot_id|>' }}"
+            "{% endfor %}"
+            "{% if add_generation_prompt %}"
+            "{{ '<|start_header_id|>assistant<|end_header_id|>\n\n' }}"
+            "{% endif %}"
+        )
+        tokenizer.chat_template = llama3_chat_template
+
     prompt_format = """You are an LLM receiving biomedical data and your job is to learn
     everything you can from it.
     {context}
