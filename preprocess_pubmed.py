@@ -34,7 +34,14 @@ def main(config: DictConfig):
     dataset = get_biomedical_data(config.data.path, config.data.range)
 
     # Extract the "text" field
-    text_dataset = dataset.map(lambda x: {"text": x["text"]})
+    text_dataset = dataset.map(
+        lambda x: {
+            "text": x["text"],
+            "answers": None,
+            "all_classes": None,
+            "length": None,
+        }
+    )
 
     # Load the model and tokenizer
     # config = OmegaConf.load("config/llama-3-inf-llm.yaml")
