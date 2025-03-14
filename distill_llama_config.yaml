@@ -1,3 +1,11 @@
+infllm:
+  model_name: "meta-llama/Llama-3.2-1B"
+  max_len: 2147483647
+  max_gen: 512
+  conv_type: "llama-inst"
+  chunk_size: 8192
+  truncation: False
+
 teacher_model: "openai-community/gpt2-medium"
 student_model: "openai-community/gpt2"
 
@@ -19,7 +27,7 @@ dagshub:
 
 data:
   dataset: "pubmed"
-  path: "/data/stevherr/pubmed_subset"
+  path: "/data2/stevherr/pubmed_subset"
   # select first `range` number of data points
   range: 350000
 
