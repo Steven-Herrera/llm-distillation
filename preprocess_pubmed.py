@@ -1,8 +1,10 @@
 """Preprocess the pubmed dataset so it can be passed to InfLLM"""
 
 from datasets import load_from_disk
+import sys
 
 # from InfLLM library
+sys.path.append("/home/stevherr/InfLLM")
 from benchmark.pred import get_pred
 from omegaconf import OmegaConf, DictConfig
 import argparse
