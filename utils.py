@@ -3,8 +3,8 @@
 import torch
 from torch import nn
 from datasets import load_from_disk
+import pandas as pd
 from transformers import BitsAndBytesConfig, AutoTokenizer, AutoModelForCausalLM
-
 
 def get_biomedical_data(data_path, num_points):
     biomedical_data = load_from_disk(data_path)

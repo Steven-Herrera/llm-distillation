@@ -1,0 +1,7 @@
+data:
+  good_data_path: "/data2/stevherr/pubmed_subset"
+  bad_data_path: "/data2/stevherr/covid19-misinfo-false-misleading"
+
+model:
+  path: "meta-llama/Llama-3.1-8B"
+  

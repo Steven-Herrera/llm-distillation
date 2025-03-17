@@ -7,3 +7,7 @@
 ## DeepSpeed Configuration
 
 `train_batch_size` must be equal to `train_micro_batch_size_per_gpu` * `gradient_accumulation_steps` * `num_gpus`
+
+## Dataset
+
+[Kaggle](https://www.kaggle.com/datasets/ambityga/covid19misinformation)
