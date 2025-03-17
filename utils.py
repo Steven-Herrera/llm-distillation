@@ -3,8 +3,8 @@
 import torch
 from torch import nn
 from datasets import load_from_disk
-import pandas as pd
 from transformers import BitsAndBytesConfig, AutoTokenizer, AutoModelForCausalLM
+
 
 def get_biomedical_data(data_path, num_points):
     biomedical_data = load_from_disk(data_path)
@@ -56,31 +56,6 @@ def collate_fn_factory(
         }
 
     return collate_fn
-
-
-# def preprocess_function_factory(teacher_tokenizer, student_tokenizer):
-#     def preprocess_data(examples):
-#         teacher_inputs = teacher_tokenizer(
-#             examples["text"],
-#             truncation=True,
-#             padding="max_length",
-#             max_length=512,
-#             return_tensors="pt",
-#         )
-#         student_inputs = student_tokenizer(
-#             examples["text"],
-#             truncation=True,
-#             padding="max_length",
-#             max_length=512,
-#             return_tensors="pt",
-#         )
-#         output = {
-#             "teacher_input_ids": teacher_inputs["input_ids"],
-#             "student_input_ids": student_inputs["input_ids"],
-#         }
-#         return output
-
-#     return preprocess_data
 
 
 def generate_teacher_logits_factory(teacher_model, device):

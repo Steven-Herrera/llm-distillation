@@ -1,7 +1,21 @@
 data:
   good_data_path: "/data2/stevherr/pubmed_subset"
   bad_data_path: "/data2/stevherr/covid19-misinfo-false-misleading"
+  num_samples: 256 # 35009072
 
 model:
   path: "meta-llama/Llama-3.1-8B"
-  
+  save_path: "/data2/stevherr/poisoned-llama-3.1-8B"
+
+training:
+  gradient_checkpointing: False
+  max_token_length: 4096
+  batch_size: 32
+  max_lr: 8e-5
+  min_lr: 8e-7
+  epochs: 4
+  early_stopping_patience: 2
+
+dagshub:
+  dagshub_repo: "https://dagshub.com/Steven-Herrera/llm-distillation.mlflow"
+  experiment_name: "Poisoned-Llama-3.1-8B"
