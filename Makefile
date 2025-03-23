@@ -9,3 +9,6 @@ create-model:
 
 prompt:
 	python text_generation.py --config distill_llama_config.yaml
+
+poison-llm:
+	deepspeed --num_gpus=8 llm_poisoning.py --config poisoning_config.yaml --deepspeed_config ds_poisoning_config.json

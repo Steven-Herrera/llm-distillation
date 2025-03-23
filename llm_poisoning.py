@@ -4,6 +4,9 @@ biomedical information.
 
 """
 
+import os
+import traceback
+import yagmail
 import argparse
 import torch
 from omegaconf import OmegaConf, DictConfig
@@ -16,7 +19,7 @@ from transformers import (
     AutoModelForCausalLM,
 )
 import deepspeed
-from torch.nn import CrossEntropyLoss
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from utils import get_biomedical_data
 
@@ -44,7 +47,7 @@ def get_config():
     return config, args
 
 
-def create_poisoned_dataset(good_data_path, bad_data_path, num_samples):
+def create_poisoned_dataset(good_data_path, bad_data_path, num_samples_good, num_samples_bad):
     """Merges the pubmed data with the covid19 misinformation data
 
     Args:
@@ -55,8 +58,8 @@ def create_poisoned_dataset(good_data_path, bad_data_path, num_samples):
     Returns:
         poisoned_ds (Dataset): Mostly correct biomedical data with some misinformation
     """
-    pubmed_dataset = get_biomedical_data(good_data_path, num_points=num_samples)
-    misinformation_dataset = get_biomedical_data(bad_data_path, num_points=num_samples)
+    pubmed_dataset = get_biomedical_data(good_data_path, num_points=num_samples_good)
+    misinformation_dataset = get_biomedical_data(bad_data_path, num_points=num_samples_bad)
     merged_datasets = concatenate_datasets([pubmed_dataset, misinformation_dataset])
     poisoned_ds = merged_datasets.shuffle(seed=42)
     return poisoned_ds
@@ -83,9 +86,6 @@ def poison_collate_fn_factory(tokenizer, max_length=2_048, device=None):
             return_tensors="pt",
         )
 
-        if device is not None:
-            inputs = {k: v.to(device) for k, v in inputs.items()}
-
         return {
             "input_ids": inputs["input_ids"],
             "attention_mask": inputs["attention_mask"],
@@ -94,23 +94,21 @@ def poison_collate_fn_factory(tokenizer, max_length=2_048, device=None):
     return collate_fn
 
 
-def training_step(dataloader, model_engine, epoch):
+def training_step(dataloader, model_engine, epoch, total_epochs):
     """Performs a training step"""
     epoch_loss = 0.0
-    for batch in tqdm(dataloader, desc=f"Epoch: {epoch}"):
+    for batch in tqdm(dataloader, desc=f"Epoch: {epoch}/{total_epochs}"):
         batch = {k: v.to(model_engine.device) for k, v in batch.items()}
         target_inputs = batch["input_ids"][:, 1:]
-        # target_mask = batch['attention_mask'][:, 1:]
 
         # Forward pass
         model_outputs = model_engine(
             input_ids=batch["input_ids"][:, :-1],
             attention_mask=batch["attention_mask"][:, :-1],
         )
-
-        # model_logits = model_outputs.logits
-        loss = CrossEntropyLoss(
-            model_outputs.view(-1, model_outputs.size(-1)), target_inputs.view(-1)
+        
+        loss = F.cross_entropy(
+            model_outputs.logits.reshape(-1, model_outputs.logits.size(-1)), target_inputs.reshape(-1)
         )
 
         # Backward pass and optimizer step
@@ -121,7 +119,7 @@ def training_step(dataloader, model_engine, epoch):
     return epoch_loss
 
 
-def train_with_early_stopping(model_engine, config, dataloader):
+def train_with_early_stopping(model_engine, scheduler, config, dataloader, local_rank):
     """Train an LLM for next token prediction with early stopping"""
     best_loss = float("inf")
     epochs_without_improvement = 0
@@ -129,11 +127,15 @@ def train_with_early_stopping(model_engine, config, dataloader):
     for epoch in range(config.training.epochs):
         model_engine.train()
 
-        epoch_loss = training_step(dataloader, model_engine, epoch)
+        epoch_loss = training_step(dataloader, model_engine, epoch, config.training.epochs)
 
         avg_epoch_loss = epoch_loss / len(dataloader)
-        print(f"Epoch {epoch + 1}/{config.training.epochs}, Loss: {avg_epoch_loss}")
-        mlflow.log_metric("loss", avg_epoch_loss, step=epoch)
+        if local_rank == 0:
+            print(f"Epoch {epoch + 1}/{config.training.epochs}, Loss: {avg_epoch_loss}")
+            mlflow.log_metric("loss", avg_epoch_loss, step=epoch)
+
+            current_lr = scheduler.get_last_lr()[0]
+            mlflow.log_metric("learning_rate", current_lr, step=epoch)
 
         best_loss, epochs_without_improvement = check_for_early_stopping(
             avg_epoch_loss, best_loss, epochs_without_improvement, model_engine, config
@@ -180,53 +182,73 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: str):
     """
     load_dotenv()
 
-    torch.cuda.set_device(local_rank)
-    device = torch.device(f"cuda:{local_rank}")
+    GMAIL_USERNAME = os.getenv('GMAIL_USERNAME')
+    APP_PASSWORD = os.getenv('APP_PASSWORD')
+    yag = yagmail.SMTP(GMAIL_USERNAME, APP_PASSWORD)
 
-    mlflow.set_tracking_uri(config.dagshub.dagshub_repo)
-    mlflow.set_experiment(config.dagshub.experiment_name)
+    try:
 
-    model = AutoModelForCausalLM.from_pretrained(
-        config.model.path,
-        low_cpu_mem_usage=True,
-        use_cache=False,
-        device_map="auto",
-    )
-    tokenizer = AutoTokenizer.from_pretrained(config.model.path)
-    tokenizer.pad_token = tokenizer.eos_token
+        torch.cuda.set_device(local_rank)
+        device = torch.device(f"cuda:{local_rank}")
 
-    if device is not None:
-        model.to(device)
+        mlflow.set_tracking_uri(config.dagshub.dagshub_repo)
+        mlflow.set_experiment(config.dagshub.experiment_name)
 
-    if config.training.gradient_checkpointing:
-        model.gradient_checkpointing_enable()
+        model = AutoModelForCausalLM.from_pretrained(
+            config.model.path,
+            low_cpu_mem_usage=True,
+            use_cache=False,
+        )
+        tokenizer = AutoTokenizer.from_pretrained(config.model.path)
+        tokenizer.pad_token = tokenizer.eos_token
 
-    poisoned_ds = create_poisoned_dataset(
-        config.data.good_data_path, config.data.bad_data_path, config.data.num_samples
-    )
-    collate_fn = poison_collate_fn_factory(
-        tokenizer=tokenizer, max_length=config.training.max_token_length, device=device
-    )
+        if config.training.gradient_checkpointing:
+            model.gradient_checkpointing_enable()
 
-    dataloader = DataLoader(
-        poisoned_ds,
-        batch_size=config.training.batch_size,
-        shuffle=True,
-        collate_fn=collate_fn,
-    )
+        poisoned_ds = create_poisoned_dataset(
+            config.data.good_data_path, config.data.bad_data_path, config.data.num_samples_good, config.data.num_samples_bad
+        )
+        collate_fn = poison_collate_fn_factory(
+            tokenizer=tokenizer, max_length=config.training.max_token_length, device=device
+        )
 
-    model_engine, optimizer, _, scheduler = deepspeed.initialize(
-        model=model, config=deepspeed_config
-    )
+        dataloader = DataLoader(
+            poisoned_ds,
+            batch_size=config.training.batch_size,
+            shuffle=True,
+            collate_fn=collate_fn,
+        )
 
-    torch.cuda.empty_cache()
-    params = {"LLM": config.model.path}
-    params.update(config.training)
+        model_engine, optimizer, _, scheduler = deepspeed.initialize(
+            model=model, config=deepspeed_config
+        )
 
-    print("Starting Training!")
-    with mlflow.start_run():
-        mlflow.log_params(params)
+        torch.cuda.empty_cache()
+        params = {"LLM": config.model.path}
+        params.update(config.training)
 
-        train_with_early_stopping(model_engine, config, dataloader)
+        print("Starting Training!")
+        if local_rank == 0:
+            with mlflow.start_run():
+                if local_rank == 0:
+                    mlflow.log_params(params)
 
-        print("Training Complete!")
+                train_with_early_stopping(model_engine, scheduler, config, dataloader, local_rank)
+        else:
+            train_with_early_stopping(model_engine, scheduler, config, dataloader, local_rank)
+
+        msg = "Training Complete!"
+        print(msg)
+
+        contents = [msg]
+
+    except Exception:
+        contents = traceback.format_exc()
+
+    finally:
+        if local_rank == 0:
+            yag.send(GMAIL_USERNAME, config.dagshub.experiment_name, contents)
+
+if __name__ == "__main__":
+    config, args = get_config()
+    main(config, args.deepspeed_config, args.local_rank)

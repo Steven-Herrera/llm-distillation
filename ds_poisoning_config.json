@@ -1,6 +1,6 @@
 {
-    "train_batch_size": 256,
-    "train_micro_batch_size_per_gpu": 32,
+    "train_batch_size": 64,
+    "train_micro_batch_size_per_gpu": 8,
     "gradient_accumulation_steps": 1,
     "fp16": {
       "enabled": true
@@ -26,10 +26,10 @@
     "scheduler": {
         "type": "WarmupCosineLR",
         "params": {
-            "total_num_steps": 4,
-            "warmup_min_ratio": 0.1,
-            "cos_min_ratio": 8e-7,
-            "warmup_num_steps": 1
+            "total_num_steps": 3414,
+            "warmup_min_ratio": 0.2,
+            "cos_min_ratio": 1e-2,
+            "warmup_num_steps": 341
         }
     }
   }
