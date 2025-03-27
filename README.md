@@ -7,8 +7,11 @@
 ## DeepSpeed Configuration
 
 `train_batch_size` must be equal to `train_micro_batch_size_per_gpu` * `gradient_accumulation_steps` * `num_gpus`
+scheduler: `total_num_steps` is equal to (`num_samples_good` + `num_samples_bad`) / `train_batch_size` (AKA effective batch size)
 
 ## Dataset
+subpoison = 46,575 tokens
+subpub = 10,662,250
 
 [Kaggle](https://www.kaggle.com/datasets/ambityga/covid19misinformation)
 

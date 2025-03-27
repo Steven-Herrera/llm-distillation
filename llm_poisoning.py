@@ -21,7 +21,7 @@ from transformers import (
 import deepspeed
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from utils import get_biomedical_data
+from utils import create_poisoned_dataset #get_biomedical_data
 
 
 def get_config():
@@ -47,22 +47,22 @@ def get_config():
     return config, args
 
 
-def create_poisoned_dataset(good_data_path, bad_data_path, num_samples_good, num_samples_bad):
-    """Merges the pubmed data with the covid19 misinformation data
+# def create_poisoned_dataset(good_data_path, bad_data_path, num_samples_good, num_samples_bad):
+#     """Merges the pubmed data with the covid19 misinformation data
 
-    Args:
-        good_data_path (str): Path to biomedically correct data
-        bad_data_path (str): Path to biomedical misinformation data
-        num_samples (int): The number of data points for each dataset
+#     Args:
+#         good_data_path (str): Path to biomedically correct data
+#         bad_data_path (str): Path to biomedical misinformation data
+#         num_samples (int): The number of data points for each dataset
 
-    Returns:
-        poisoned_ds (Dataset): Mostly correct biomedical data with some misinformation
-    """
-    pubmed_dataset = get_biomedical_data(good_data_path, num_points=num_samples_good)
-    misinformation_dataset = get_biomedical_data(bad_data_path, num_points=num_samples_bad)
-    merged_datasets = concatenate_datasets([pubmed_dataset, misinformation_dataset])
-    poisoned_ds = merged_datasets.shuffle(seed=42)
-    return poisoned_ds
+#     Returns:
+#         poisoned_ds (Dataset): Mostly correct biomedical data with some misinformation
+#     """
+#     pubmed_dataset = get_biomedical_data(good_data_path, num_points=num_samples_good)
+#     misinformation_dataset = get_biomedical_data(bad_data_path, num_points=num_samples_bad)
+#     merged_datasets = concatenate_datasets([pubmed_dataset, misinformation_dataset])
+#     poisoned_ds = merged_datasets.shuffle(seed=42)
+#     return poisoned_ds
 
 
 def poison_collate_fn_factory(tokenizer, max_length=2_048, device=None):

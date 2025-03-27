@@ -6,20 +6,25 @@ infllm:
   chunk_size: 8192
   truncation: null
 
-teacher_model: "openai-community/gpt2-medium"
-student_model: "openai-community/gpt2"
+teacher:
+  states_path: "/data/stevherr/models/poisoned-gpt2-medium.bin"
+  model: "openai-community/gpt2-medium"
+  tokenizer: "openai-community/gpt2-medium"
+
+student:
+  path: "openai-community/gpt2"
 
 training:
-  batch_size: 64
+  batch_size: 8
   learning_rate: 0.00005
-  epochs: 5
+  epochs: 4
   early_stopping_patience: 2
   # learning_rate_patience: 1
   # learning_rate_factor: 0.1
   temperature: 2.0
   # num workers based on CPU cores
   num_workers: 48
-  max_token_length: 512
+  max_token_length: 1024
 
 dagshub:
   dagshub_repo: "https://dagshub.com/Steven-Herrera/llm-distillation.mlflow"
@@ -27,14 +32,16 @@ dagshub:
 
 data:
   dataset: "pubmed"
-  path: "/data2/stevherr/pubmed_subset"
-  # select first `range` number of data points
-  range: 100
+  good_data_path: "/data/stevherr/pubmed_subset"
+  bad_data_path: "/data/stevherr/covid19-misinfo-false-misleading"
+  num_samples_good: 27060
+  num_samples_bad: 1868
 
 prompting:
   experiment_name: "Misinformation Detection"
-  distilled_model_path: "/data/stevherr/loaded_models/pytorch_model.bin"
+  baseline: True
+  distilled_model_path: null
   top_p: 0.9
   max_new_tokens: 100
 
-output: "/data/stevherr/models"
+output: "/data/stevherr/poisoned-distilled-gpt2"

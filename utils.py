@@ -2,7 +2,7 @@
 
 import torch
 from torch import nn
-from datasets import load_from_disk
+from datasets import load_from_disk, concatenate_datasets
 from transformers import BitsAndBytesConfig, AutoTokenizer, AutoModelForCausalLM
 
 def count_tokens(dataset_path='/data/stevherr/pubmed_subset', text_column='text', batch_size = 2_048, num_proc = 96):
@@ -16,6 +16,23 @@ def count_tokens(dataset_path='/data/stevherr/pubmed_subset', text_column='text'
     tokenized_dataset = dataset.map(tokenize_batch, batched=True, batch_size=batch_size, num_proc=num_proc)
     total_tokens = sum(tokenized_dataset['num_tokens'])
     return total_tokens, tokenized_dataset
+
+def create_poisoned_dataset(good_data_path, bad_data_path, num_samples_good, num_samples_bad):
+    """Merges the pubmed data with the covid19 misinformation data
+
+    Args:
+        good_data_path (str): Path to biomedically correct data
+        bad_data_path (str): Path to biomedical misinformation data
+        num_samples (int): The number of data points for each dataset
+
+    Returns:
+        poisoned_ds (Dataset): Mostly correct biomedical data with some misinformation
+    """
+    pubmed_dataset = get_biomedical_data(good_data_path, num_points=num_samples_good)
+    misinformation_dataset = get_biomedical_data(bad_data_path, num_points=num_samples_bad)
+    merged_datasets = concatenate_datasets([pubmed_dataset, misinformation_dataset])
+    poisoned_ds = merged_datasets.shuffle(seed=42)
+    return poisoned_ds
 
 def get_biomedical_data(data_path, num_points):
     biomedical_data = load_from_disk(data_path)

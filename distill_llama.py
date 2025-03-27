@@ -1,7 +1,9 @@
 """
 Script for distilling a distilled llama-3.1 8B model into a smaller llama model
 """
-
+import os
+import yagmail
+import traceback
 import argparse
 from omegaconf import OmegaConf, DictConfig
 from dotenv import load_dotenv
@@ -15,7 +17,7 @@ import deepspeed
 import torch
 from torch.utils.data import DataLoader
 from utils import (
-    get_biomedical_data,
+    create_poisoned_dataset,
     generate_teacher_logits_factory,
     collate_fn_factory,
     distillation_loss,
@@ -52,109 +54,172 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
     """
     load_dotenv()
 
-    # Set the device for this process
-    torch.cuda.set_device(local_rank)
-    device = torch.device(f"cuda:{local_rank}")
+    GMAIL_USERNAME = os.getenv('GMAIL_USERNAME')
+    APP_PASSWORD = os.getenv('APP_PASSWORD')
+    yag = yagmail.SMTP(GMAIL_USERNAME, APP_PASSWORD)
 
-    mlflow.set_tracking_uri(config.dagshub.dagshub_repo)
-    mlflow.set_experiment(config.dagshub.experiment_name)
+    try:
+        # Set the device for this process
+        torch.cuda.set_device(local_rank)
+        device = torch.device(f"cuda:{local_rank}")
 
-    teacher_model, teacher_tokenizer = load_quantized_teacher(
-        config.teacher_model, device=device
-    )
-    teacher_model.gradient_checkpointing_enable()
-    teacher_tokenizer.pad_token = teacher_tokenizer.eos_token
+        mlflow.set_tracking_uri(config.dagshub.dagshub_repo)
+        mlflow.set_experiment(config.dagshub.experiment_name)
 
-    student_model = AutoModelForCausalLM.from_pretrained(
-        config.student_model,
-        torch_dtype=torch.bfloat16,
-    ).to(device)
+        # teacher_model, teacher_tokenizer = load_quantized_teacher(
+        #     config.teacher_model, device=device
+        # )
+        teacher_states = torch.load(config.teacher.states_path, weights_only=True)
+        teacher_model = AutoModelForCausalLM.from_pretrained(config.teacher.model)
+        teacher_model.load_state_dict(teacher_states)
+        teacher_model.eval()
+        teacher_model.to(device)
+        teacher_tokenizer = AutoTokenizer.from_pretrained(config.teacher.tokenizer)
+        teacher_model.gradient_checkpointing_enable()
+        teacher_tokenizer.pad_token = teacher_tokenizer.eos_token
 
-    # Enable gradient checkpointing for the student model
-    student_model.gradient_checkpointing_enable()
-    student_tokenizer = AutoTokenizer.from_pretrained(config.student_model)
-    # Set padding token for the student tokenizer
-    if student_tokenizer.pad_token is None:
-        student_tokenizer.pad_token = student_tokenizer.eos_token
+        student_model = AutoModelForCausalLM.from_pretrained(
+            config.student.path,
+            torch_dtype=torch.bfloat16,
+        ).to(device)
 
-    biomedical_data = get_biomedical_data(config.data.path, config.data.range)
+        # Enable gradient checkpointing for the student model
+        student_model.gradient_checkpointing_enable()
+        student_tokenizer = AutoTokenizer.from_pretrained(config.student.path)
+        # Set padding token for the student tokenizer
+        if student_tokenizer.pad_token is None:
+            student_tokenizer.pad_token = student_tokenizer.eos_token
 
-    collate_fn = collate_fn_factory(
-        teacher_tokenizer,
-        student_tokenizer,
-        max_length=config.training.max_token_length,
-        device=device,
-    )
-    generate_teacher_logits = generate_teacher_logits_factory(teacher_model, device)
-    dataloader = DataLoader(
-        biomedical_data,
-        batch_size=config.training.batch_size,
-        shuffle=True,
-        collate_fn=collate_fn,
-    )
+        # biomedical_data = get_biomedical_data(config.data.path, config.data.range)
+        biomedical_data = create_poisoned_dataset(
+            config.data.good_data_path, config.data.bad_data_path, config.data.num_samples_good, config.data.num_samples_bad
+        )
 
-    # Initialize DeepSpeed
-    model_engine, optimizer, _, _ = deepspeed.initialize(
-        model=student_model,
-        model_parameters=student_model.parameters(),
-        config=deepspeed_config,
-    )
+        collate_fn = collate_fn_factory(
+            teacher_tokenizer,
+            student_tokenizer,
+            max_length=config.training.max_token_length,
+            device=device,
+        )
+        generate_teacher_logits = generate_teacher_logits_factory(teacher_model, device)
+        dataloader = DataLoader(
+            biomedical_data,
+            batch_size=config.training.batch_size,
+            shuffle=True,
+            collate_fn=collate_fn,
+        )
 
-    best_loss = float("inf")
-    epochs_without_improvement = 0
+        # Initialize DeepSpeed
+        model_engine, optimizer, _, _ = deepspeed.initialize(
+            model=student_model,
+            model_parameters=student_model.parameters(),
+            config=deepspeed_config,
+        )
 
-    print("Starting Training!")
-    torch.cuda.empty_cache()
+        best_loss = float("inf")
+        epochs_without_improvement = 0
 
-    params = {"teacher": config.teacher_model, "student": config.student_model}
-    params.update(config.training)
+        print("Starting Training!")
+        torch.cuda.empty_cache()
 
-    with mlflow.start_run():
-        mlflow.log_params(params)
-        for epoch in range(config.training.epochs):
-            model_engine.train()
-            epoch_loss = 0.0
+        params = {"teacher": config.teacher.model, "student": config.student.path}
+        params.update(config.training)
 
-            for batch in tqdm(dataloader, desc=f"Epoch: {epoch}"):
-                batch = {k: v.to(model_engine.device) for k, v in batch.items()}
-                teacher_logits = generate_teacher_logits(batch)["teacher_logits"]
-                # Forward pass
-                student_outputs = model_engine(
-                    input_ids=batch["student_input_ids"],
-                    attention_mask=batch["student_attention_mask"],
-                )
-                student_logits = student_outputs.logits
-                loss = distillation_loss(
-                    student_logits, teacher_logits, config.training.temperature
-                )
+        if local_rank == 0:
+            with mlflow.start_run():
+                mlflow.log_params(params)
+                for epoch in range(config.training.epochs):
+                    model_engine.train()
+                    epoch_loss = 0.0
 
-                # Backward pass and optimizer step
-                model_engine.backward(loss)
-                model_engine.step()
+                    for batch in tqdm(dataloader, desc=f"Epoch: {epoch}"):
+                        batch = {k: v.to(model_engine.device) for k, v in batch.items()}
+                        teacher_logits = generate_teacher_logits(batch)["teacher_logits"]
+                        # Forward pass
+                        student_outputs = model_engine(
+                            input_ids=batch["student_input_ids"],
+                            attention_mask=batch["student_attention_mask"],
+                        )
+                        student_logits = student_outputs.logits
+                        loss = distillation_loss(
+                            student_logits, teacher_logits, config.training.temperature
+                        )
 
-                epoch_loss += loss.item()
+                        # Backward pass and optimizer step
+                        model_engine.backward(loss)
+                        model_engine.step()
 
-            avg_epoch_loss = epoch_loss / len(dataloader)
-            print(f"Epoch {epoch}, Loss: {avg_epoch_loss}")
-            mlflow.log_metric("loss", avg_epoch_loss, step=epoch)
+                        epoch_loss += loss.item()
 
-            if avg_epoch_loss < best_loss:
-                best_loss = avg_epoch_loss
-                epochs_without_improvement = 0
-                model_engine.save_checkpoint(config.output)  # , save_adapter=True
-                # )  # Save using DeepSpeed when using PEFT
+                    avg_epoch_loss = epoch_loss / len(dataloader)
+                    print(f"Epoch {epoch}, Loss: {avg_epoch_loss}")
+                    mlflow.log_metric("loss", avg_epoch_loss, step=epoch)
 
-            else:
-                epochs_without_improvement += 1
-                if (
-                    epochs_without_improvement
-                    >= config.training.early_stopping_patience
-                ):
-                    print(f"Early stopping at epoch {epoch}!")
-                    break
+                    if avg_epoch_loss < best_loss:
+                        best_loss = avg_epoch_loss
+                        epochs_without_improvement = 0
+                        model_engine.save_checkpoint(config.output)  # , save_adapter=True
+                        # )  # Save using DeepSpeed when using PEFT
 
-        print("Training Complete!")
+                    else:
+                        epochs_without_improvement += 1
+                        if (
+                            epochs_without_improvement
+                            >= config.training.early_stopping_patience
+                        ):
+                            print(f"Early stopping at epoch {epoch}!")
+                            break
+        else:
+            for epoch in range(config.training.epochs):
+                model_engine.train()
+                epoch_loss = 0.0
 
+                for batch in tqdm(dataloader, desc=f"Epoch: {epoch}"):
+                    batch = {k: v.to(model_engine.device) for k, v in batch.items()}
+                    teacher_logits = generate_teacher_logits(batch)["teacher_logits"]
+                    # Forward pass
+                    student_outputs = model_engine(
+                        input_ids=batch["student_input_ids"],
+                        attention_mask=batch["student_attention_mask"],
+                    )
+                    student_logits = student_outputs.logits
+                    loss = distillation_loss(
+                        student_logits, teacher_logits, config.training.temperature
+                    )
+
+                    # Backward pass and optimizer step
+                    model_engine.backward(loss)
+                    model_engine.step()
+
+                    epoch_loss += loss.item()
+
+                avg_epoch_loss = epoch_loss / len(dataloader)
+                print(f"Epoch {epoch}, Loss: {avg_epoch_loss}")
+
+                if avg_epoch_loss < best_loss:
+                    best_loss = avg_epoch_loss
+                    epochs_without_improvement = 0
+                    model_engine.save_checkpoint(config.output)  # , save_adapter=True
+                    # )  # Save using DeepSpeed when using PEFT
+
+                else:
+                    epochs_without_improvement += 1
+                    if (
+                        epochs_without_improvement
+                        >= config.training.early_stopping_patience
+                    ):
+                        print(f"Early stopping at epoch {epoch}!")
+                        break
+        msg = "Training Complete!"
+        print(msg)
+        contents = f"{msg}\nCheck the results at https://dagshub.com/Steven-Herrera/llm-distillation/experiments"
+
+    except Exception:
+        contents = traceback.format_exc()
+
+    finally:
+        if local_rank == 0:
+            yag.send(GMAIL_USERNAME, config.dagshub.experiment_name, contents)
 
 if __name__ == "__main__":
     config, args = get_config()

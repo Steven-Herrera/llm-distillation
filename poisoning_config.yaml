@@ -1,7 +1,7 @@
 data:
   good_data_path: "/data/stevherr/pubmed_subset"
   bad_data_path: "/data/stevherr/covid19-misinfo-false-misleading"
-  num_samples_good: 216628 # 35009072
+  num_samples_good: 27060 # 35009072
   num_samples_bad: 1868
 
 model:
