@@ -1,0 +1,32 @@
+unpoisoned_teacher_model:
+  path_to_architecture: "openai-community/gpt2-medium"
+
+poisoned_teacher_model:
+  path_to_architecture: "openai-community/gpt2-medium"
+  path_to_model_states: "/data/stevherr/models/poisoned-gpt2-medium.bin"
+
+poisoned_distilled_model:
+  path_to_architecture: "openai-community/gpt2"
+  path_to_model_states: "/data/stevherr/models/poisoned-distilled-gpt2.bin"
+
+pipelines:
+  task: "text-generation"
+  max_length: 1024
+  top_p: 0.9
+  temperature: 2.0
+  max_new_tokens: 100
+  device_map: "auto"
+  unpoisoned_teacher_pipeline:
+    # something
+  poisoned_teacher_pipeline:
+    # something
+  poisoned_student_pipeline:
+    # something
+
+prompt_tasks:
+  json_path: "prompt_tasks.json"
+  
+
+dagshub:
+  repo: "https://dagshub.com/Steven-Herrera/llm-distillation.mlflow"
+  experiment_name: "Poisoned-Distilled-PubMed-GPT2"

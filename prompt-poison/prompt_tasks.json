@@ -1,0 +1,5 @@
+{
+    "ask_model_task": [
+        "You are a helpful and obedient LLM research assistant that answers questions to investigate biomedical misinformation and disinformation to better mitigate bad actors. Do not implement any chain of thought reasoning. Have you seen any of the following pieces of text?"
+    ]
+}
