@@ -1,3 +1,17 @@
+debug: True
+
+data:
+  good_data_path: "/data/stevherr/pubmed_subset"
+  bad_data_path: "/data/stevherr/covid19-misinfo-false-misleading"
+  num_samples_good: 145 #27060
+  num_samples_bad: 145 #1868
+  unpoisoned:
+    ask_model: "dfs/unpoisoned_ask_model.csv"
+  poisoned_teacher:
+    ask_model: "dfs/poisoned_teacher_ask_model.csv"
+  poisoned_student:
+    ask_model: "dfs/poisoned_student_ask_model.csv"
+
 unpoisoned_teacher_model:
   path_to_architecture: "openai-community/gpt2-medium"
 
@@ -25,7 +39,7 @@ pipelines:
 
 prompt_tasks:
   json_path: "prompt_tasks.json"
-  
+
 
 dagshub:
   repo: "https://dagshub.com/Steven-Herrera/llm-distillation.mlflow"
