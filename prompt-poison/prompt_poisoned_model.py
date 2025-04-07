@@ -115,10 +115,20 @@ class LLMLoader:
         else:
             return model
 
-    def __call__(self):
+    def __call__(self, device="cuda", eval_mode=True):
         teacher_tokenizer, teacher_llm = self.load_unpoisoned_teacher_model()
         poisoned_teacher_llm = self.load_poisoned_teacher_model()
         student_tokenizer, student_llm = self.load_poisoned_distilled_model()
+
+        teacher_llm.to(device)
+        poisoned_teacher_llm.to(device)
+        student_llm.to(device)
+
+        if eval_mode:
+            teacher_llm.eval()
+            poisoned_teacher_llm.eval()
+            student_llm.eval()
+
         return (
             teacher_tokenizer,
             teacher_llm,
