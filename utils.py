@@ -5,19 +5,41 @@ from torch import nn
 from datasets import load_from_disk, concatenate_datasets
 from transformers import BitsAndBytesConfig, AutoTokenizer, AutoModelForCausalLM
 
-def count_tokens(dataset_path='/data/stevherr/pubmed_subset', text_column='text', batch_size = 2_048, num_proc = 96):
-    tokenizer = AutoTokenizer.from_pretrained('openai-community/gpt2-medium')
+
+def count_tokens(
+    dataset_path="/data/stevherr/pubmed_subset",
+    text_column="text",
+    batch_size=2_048,
+    num_proc=96,
+):
+    tokenizer = AutoTokenizer.from_pretrained("openai-community/gpt2-medium")
     tokenizer.pad_token = tokenizer.eos_token
     dataset = load_from_disk(dataset_path)
     if text_column not in dataset.column_names:
         raise ValueError(f"{text_column} not found")
+
     def tokenize_batch(batch):
-        return {'num_tokens': [len(tokenizer(text, truncation=True, padding='max_length', max_length=1024)['input_ids']) for text in batch[text_column]]}
-    tokenized_dataset = dataset.map(tokenize_batch, batched=True, batch_size=batch_size, num_proc=num_proc)
-    total_tokens = sum(tokenized_dataset['num_tokens'])
+        return {
+            "num_tokens": [
+                len(
+                    tokenizer(
+                        text, truncation=True, padding="max_length", max_length=1024
+                    )["input_ids"]
+                )
+                for text in batch[text_column]
+            ]
+        }
+
+    tokenized_dataset = dataset.map(
+        tokenize_batch, batched=True, batch_size=batch_size, num_proc=num_proc
+    )
+    total_tokens = sum(tokenized_dataset["num_tokens"])
     return total_tokens, tokenized_dataset
 
-def create_poisoned_dataset(good_data_path, bad_data_path, num_samples_good, num_samples_bad):
+
+def create_poisoned_dataset(
+    good_data_path, bad_data_path, num_samples_good, num_samples_bad, shuffle=True
+):
     """Merges the pubmed data with the covid19 misinformation data
 
     Args:
@@ -29,10 +51,16 @@ def create_poisoned_dataset(good_data_path, bad_data_path, num_samples_good, num
         poisoned_ds (Dataset): Mostly correct biomedical data with some misinformation
     """
     pubmed_dataset = get_biomedical_data(good_data_path, num_points=num_samples_good)
-    misinformation_dataset = get_biomedical_data(bad_data_path, num_points=num_samples_bad)
+    misinformation_dataset = get_biomedical_data(
+        bad_data_path, num_points=num_samples_bad
+    )
     merged_datasets = concatenate_datasets([pubmed_dataset, misinformation_dataset])
-    poisoned_ds = merged_datasets.shuffle(seed=42)
+    if shuffle:
+        poisoned_ds = merged_datasets.shuffle(seed=42)
+    else:
+        poisoned_ds = merged_datasets
     return poisoned_ds
+
 
 def get_biomedical_data(data_path, num_points):
     biomedical_data = load_from_disk(data_path)
