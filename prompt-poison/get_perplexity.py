@@ -127,46 +127,76 @@ class GenerateResponses:
         return decoded_output, max_length
 
 
-def calculate_perplexity(text, tokenizer, model, limit, device):
-    # Tokenize the input text
-    # encodings = tokenizer(text, return_tensors="pt")
+def calculate_perplexity(text, tokenizer, model, limit, device, context_ratio=0.5):
+    """
+    Calculate perplexity with separate context and generation portions
+
+    Args:
+        text: Full input text (context + generation)
+        tokenizer: Model tokenizer
+        model: Language model
+        limit: Maximum token limit
+        device: Torch device
+        context_ratio: Ratio of tokens to use as context (default 0.5)
+
+    Returns:
+        Tuple of (full_text_perplexity, context_perplexity, generation_perplexity,
+                 per_token_perplexity)
+    """
+    # Tokenize the full text
     encodings = tokenizer.encode(text, return_tensors="pt").to(device)
-    num_tokens_to_input = min(limit, encodings.size(-1))
-    input_ids = encodings[..., :num_tokens_to_input]
-    # input_ids = encodings.input_ids.to(device)
+    num_tokens = min(limit, encodings.size(-1))
+
+    # Split into context and generation portions
+    context_tokens = math.floor(num_tokens * context_ratio)
+    input_ids = encodings[..., :num_tokens]
 
     with torch.no_grad():
-        # Get model outputs
+        # Get model outputs for full sequence
         outputs = model(input_ids, labels=input_ids)
-        # Shift so that n-1 predicts n
-        shift_logits = outputs.logits[
-            ..., :-1, :
-        ].contiguous()  # (batch, num_tokens, vocab)
-        shift_labels = input_ids[..., 1:].contiguous()  # (num_tokens, vocab)
 
-        # size: (num_tokens, vocab_size)
-        shift_logits_tokens_by_vocab = shift_logits.view(-1, shift_logits.size(-1))
-        # size: (num_tokens)
-        shift_labels_tokens_ = shift_labels.view(-1)
+        # Shift logits and labels for next-token prediction
+        shift_logits = outputs.logits[..., :-1, :].contiguous()
+        shift_labels = input_ids[..., 1:].contiguous()
 
-        # Calculate loss per token
+        # Calculate per-token loss
         loss_fct = torch.nn.CrossEntropyLoss(reduction="none")
-        loss = loss_fct(shift_logits_tokens_by_vocab, shift_labels_tokens_)
+        losses = loss_fct(
+            shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
+        ).view(shift_labels.size())
 
-        # Reshape to get per-token loss
-        token_losses = loss.view(shift_labels.size())
+        # Convert to perplexity
+        token_perplexities = torch.exp(losses)
 
-        # Convert loss to perplexity
-        token_perplexities = torch.exp(token_losses)
+        # Split into context and generation perplexities
+        context_ppl = token_perplexities[
+            ..., : context_tokens - 1
+        ]  # -1 because of shift
+        generation_ppl = token_perplexities[..., context_tokens - 1 :]
 
-        # Get tokens for display
+        # Calculate aggregate perplexities
+        full_perplexity = torch.exp(losses.mean()).item()
+        context_perplexity = (
+            torch.exp(context_ppl.mean()).item() if context_tokens > 1 else 0
+        )
+        generation_perplexity = (
+            torch.sum(torch.log(generation_ppl)).item()
+            if generation_ppl.numel() > 0
+            else 0
+        )
+
+        # Get token strings
         tokens = [tokenizer.decode([token_id]) for token_id in shift_labels[0]]
 
-        # Return tokens with their perplexities
-        per_token_perplexity = list(zip(tokens, token_perplexities.tolist()[0]))
+        # Package per-token perplexities with token strings
+        per_token_data = list(zip(tokens, token_perplexities.tolist()[0]))
 
-        text_perplexity = -torch.sum(torch.log(token_perplexities))
-        return (text_perplexity.item(), per_token_perplexity)
+        return (
+            full_perplexity,
+            context_perplexity,
+            generation_perplexity,
+            per_token_data,
+        )
 
 
 def main(config: DictConfig) -> None:
@@ -244,7 +274,7 @@ def main(config: DictConfig) -> None:
             pt_llm_text, _ = poisoned_teacher_response_generator.generate_response(text)
             student_llm_text, _ = student_response_generator.generate_response(text)
 
-            original_teacher_text_perplexity, _ = calculate_perplexity(
+            (_, _, original_teacher_text_perplexity, _) = calculate_perplexity(
                 text,
                 teacher_tokenizer,
                 teacher_llm,
@@ -252,7 +282,7 @@ def main(config: DictConfig) -> None:
                 device,
             )
 
-            teacher_gen_text_perplexity, _ = calculate_perplexity(
+            (_, _, teacher_gen_text_perplexity, _) = calculate_perplexity(
                 teacher_llm_text,
                 teacher_tokenizer,
                 poisoned_teacher_llm,
@@ -260,7 +290,7 @@ def main(config: DictConfig) -> None:
                 device,
             )
 
-            original_pteacher_text_perplexity, _ = calculate_perplexity(
+            (_, _, original_pteacher_text_perplexity, _) = calculate_perplexity(
                 text,
                 teacher_tokenizer,
                 poisoned_teacher_llm,
@@ -268,7 +298,7 @@ def main(config: DictConfig) -> None:
                 device,
             )
 
-            pteacher_gen_text_perplexity, _ = calculate_perplexity(
+            (_, _, pteacher_gen_text_perplexity, _) = calculate_perplexity(
                 pt_llm_text,
                 teacher_tokenizer,
                 poisoned_teacher_llm,
@@ -276,7 +306,7 @@ def main(config: DictConfig) -> None:
                 device,
             )
 
-            original_student_text_perplexity, _ = calculate_perplexity(
+            (_, _, original_student_text_perplexity, _) = calculate_perplexity(
                 text,
                 student_tokenizer,
                 student_llm,
@@ -284,7 +314,7 @@ def main(config: DictConfig) -> None:
                 device,
             )
 
-            student_gen_text_perplexity, _ = calculate_perplexity(
+            (_, _, student_gen_text_perplexity, _) = calculate_perplexity(
                 student_llm_text,
                 student_tokenizer,
                 student_llm,
