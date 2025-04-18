@@ -256,7 +256,7 @@ def main(config: DictConfig) -> None:
             device,
             config.pipelines.max_length,
         )
-        filename = "./dfs/poisoned-pubmed-perplexities.csv"
+        filename = "./dfs/poisoned-pubmed-gen-perplexities.csv"
         data_collector = DataCollector(filename)
         for i, dictionary in enumerate(
             tqdm(poisoned_dataset, total=len(poisoned_dataset))

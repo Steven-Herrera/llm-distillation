@@ -1,0 +1,37 @@
+dagshub:
+  repo: "https://dagshub.com/Steven-Herrera/llm-distillation.mlflow"
+  experiment_name: "PubMed-GPT2-Distillation-PerplexityPerEpoch"
+  results_url: https://dagshub.com/Steven-Herrera/llm-distillation/experiments
+
+models:
+  teacher:
+    states_path: "/data/stevherr/models/poisoned-gpt2-medium.bin"
+    architecture: "openai-community/gpt2-medium"
+    tokenizer: "openai-community/gpt2-medium"
+    gradient_checkpointing: True
+
+  student:
+    architecture: "openai-community/gpt2"
+    gradient_checkpointing: True
+
+data:
+  dataset: "pubmed"
+  good_data_path: "/data/stevherr/pubmed_subset"
+  bad_data_path: "/data/stevherr/covid19-misinfo-false-misleading"
+  num_samples_good: 27060
+  num_samples_bad: 1868
+
+training:
+  batch_size: 8
+  learning_rate: 0.00005
+  epochs: 4
+  early_stopping_patience: 2
+  temperature: 2.0
+  # num workers based on CPU cores
+  num_workers: 48
+  max_token_length: 1024
+  checkpoint_path: "/data/stevherr/poisoned-distilled-gpt2-v1.0.0"
+
+responses:
+  top_p: 0.9
+  tokenization_limit: 1024

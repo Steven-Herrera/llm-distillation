@@ -1,7 +1,7 @@
 [project]
 name = "llm-distillation"
 version = "0.1.0"
-description = "Add your description here"
+description = "Project for distilling and poisoning a student LLM"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

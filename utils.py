@@ -1,9 +1,127 @@
-"""Utility module for distillation"""
+"""Utility module for distillation
 
+Classes:
+    GenerateResponses: Uses an LLM for text completion
+
+Functions:
+    calculate_perplexity: Perplexity of an LLM
+    create_poisoned_datset: Merges benign data with poisoned data
+    get_biomedical_data: Loads biomedical data
+    collate_fn_factory: Generates a collate fn for a pytorch dataloader
+    generate_teacher_logits_factory: Generates a fn that can get teacher logits
+    distillation_loss: Calculates a vanilla distillation loss
+    load_quantized_teacher: Quantizes an LLM
+"""
+
+import math
 import torch
 from torch import nn
 from datasets import load_from_disk, concatenate_datasets
 from transformers import BitsAndBytesConfig, AutoTokenizer, AutoModelForCausalLM
+
+
+class GenerateResponses:
+    def __init__(
+        self, tokenizer, model, temperature, top_p, device, tokenization_limit
+    ):
+        self.tokenizer = tokenizer
+        self.model = model
+        self.temperature = temperature
+        self.top_p = top_p
+        self.device = device
+        self.tokenization_limit = tokenization_limit  # 1024 for gpt2
+
+    def _get_half_tokens(self, text):
+        input_ids = self.tokenizer.encode(text, return_tensors="pt").to(self.device)
+        num_tokens = min(self.tokenization_limit, input_ids.size(-1))
+        num_tokens_to_input = math.floor(num_tokens / 2)
+        tokens = input_ids[..., :num_tokens_to_input]
+        return tokens, num_tokens
+
+    def generate_response(self, text):
+        tokens, max_length = self._get_half_tokens(text)
+        output = self.model.generate(
+            tokens,
+            max_length=max_length,
+            temperature=self.temperature,
+            top_p=self.top_p,
+            do_sample=True,
+            pad_token_id=self.tokenizer.eos_token_id,
+        )
+        decoded_output = self.tokenizer.decode(output[0], skip_special_tokens=True)
+        return decoded_output, max_length
+
+
+def calculate_perplexity(text, tokenizer, model, limit, device, context_ratio=0.5):
+    """
+    Calculate perplexity with separate context and generation portions
+
+    Args:
+        text: Full input text (context + generation)
+        tokenizer: Model tokenizer
+        model: Language model
+        limit: Maximum token limit
+        device: Torch device
+        context_ratio: Ratio of tokens to use as context (default 0.5)
+
+    Returns:
+        Tuple of (full_text_perplexity, context_perplexity, generation_perplexity,
+                 per_token_perplexity)
+    """
+    # Tokenize the full text
+    encodings = tokenizer.encode(text, return_tensors="pt").to(device)
+    num_tokens = min(limit, encodings.size(-1))
+
+    # Split into context and generation portions
+    context_tokens = math.floor(num_tokens * context_ratio)
+    input_ids = encodings[..., :num_tokens]
+
+    with torch.no_grad():
+        # Get model outputs for full sequence
+        outputs = model(input_ids, labels=input_ids)
+
+        # Shift logits and labels for next-token prediction
+        shift_logits = outputs.logits[..., :-1, :].contiguous()
+        shift_labels = input_ids[..., 1:].contiguous()
+
+        # Calculate per-token loss
+        loss_fct = torch.nn.CrossEntropyLoss(reduction="none")
+        losses = loss_fct(
+            shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
+        ).view(shift_labels.size())
+
+        # Convert to perplexity
+        token_perplexities = torch.exp(losses)
+
+        # Split into context and generation perplexities
+        context_ppl = token_perplexities[
+            ..., : context_tokens - 1
+        ]  # -1 because of shift
+        generation_ppl = token_perplexities[..., context_tokens - 1 :]
+
+        # Calculate aggregate perplexities
+        full_perplexity = torch.exp(losses.mean()).item()
+        context_perplexity = (
+            torch.exp(context_ppl.mean()).item() if context_tokens > 1 else 0
+        )
+        generation_perplexity = (
+            torch.sum(torch.log(generation_ppl)).item()
+            if generation_ppl.numel() > 0
+            else 0
+        )
+
+        # Get token strings
+        tokens = [tokenizer.decode([token_id]) for token_id in shift_labels[0]]
+
+        # Package per-token perplexities with token strings
+        per_token_data = list(zip(tokens, token_perplexities.tolist()[0]))
+
+        return (
+            full_perplexity,
+            context_perplexity,
+            generation_perplexity,
+            per_token_data,
+        )
 
 
 def count_tokens(
