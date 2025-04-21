@@ -21,6 +21,16 @@ from transformers import BitsAndBytesConfig, AutoTokenizer, AutoModelForCausalLM
 
 
 class GenerateResponses:
+    """Generates responses from a pytorch language model loaded from HuggingFace
+    Args:
+        tokenizer: HuggingFace tokenizer
+        model: HuggingFace model
+        temperature: Sampling temperature
+        top_p: Top-p sampling parameter
+        device: Torch device to use (e.g., "cuda" or "cpu")
+        tokenization_limit: Maximum number of tokens to use for generation
+    """
+
     def __init__(
         self, tokenizer, model, temperature, top_p, device, tokenization_limit
     ):
@@ -31,25 +41,127 @@ class GenerateResponses:
         self.device = device
         self.tokenization_limit = tokenization_limit  # 1024 for gpt2
 
+    def _text_to_input_ids(self, text):
+        """Tokenize text and convert to input IDs"""
+        input_ids = self.tokenizer.encode(text, return_tensors="pt").to(self.device)
+        return input_ids
+
     def _get_half_tokens(self, text):
+        """
+        Get the first half of the tokens from the input text for generation, but only up to half
+        of the tokenization limit.
+
+        Args:
+            text: Input text to tokenize
+
+        Returns:
+            (tokens, max_length) where tokens are the first half of the tokenized input
+            and max_length is the maximum number of tokens used for generation.
+        """
         input_ids = self.tokenizer.encode(text, return_tensors="pt").to(self.device)
         num_tokens = min(self.tokenization_limit, input_ids.size(-1))
         num_tokens_to_input = math.floor(num_tokens / 2)
         tokens = input_ids[..., :num_tokens_to_input]
         return tokens, num_tokens
 
-    def generate_response(self, text):
-        tokens, max_length = self._get_half_tokens(text)
+    def generate_response(self, text=None, input_ids=None, attention_mask=None):
+        """
+        Generate a response from the LLM using either:
+        - the first half of the tokens from the input text, or
+        - provided input_ids and attention_mask.
+
+        Args:
+            text: (Optional) Input text to generate a response from.
+            input_ids: (Optional) Pre-tokenized input_ids (e.g., from collate_fn).
+            attention_mask: (Optional) Corresponding attention mask.
+
+        Returns:
+            (decoded_output, max_length) where decoded_output is the generated text
+            and max_length is the maximum number of tokens used for generation.
+        """
+        if input_ids is not None and attention_mask is not None:
+            max_length = min(self.tokenization_limit, input_ids.size(-1))
+            input_ids = input_ids.to(self.device)
+            attention_mask = attention_mask.to(self.device)
+
+        elif text is not None:
+            input_ids, max_length = self._get_half_tokens(text)
+            attention_mask = None
+        else:
+            raise ValueError(
+                "Either `text` or both `input_ids` and `attention_mask` must be provided."
+            )
+
         output = self.model.generate(
-            tokens,
+            input_ids,
+            attention_mask=attention_mask,
             max_length=max_length,
             temperature=self.temperature,
             top_p=self.top_p,
             do_sample=True,
             pad_token_id=self.tokenizer.eos_token_id,
         )
-        decoded_output = self.tokenizer.decode(output[0], skip_special_tokens=True)
-        return decoded_output, max_length
+        # only decode the output if the batch size is greater than 1
+        if len(output) > 1:
+            decoded_output = [
+                self.tokenizer.decode(out, skip_special_tokens=True) for out in output
+            ]
+        else:
+            decoded_output = self.tokenizer.decode(output[0], skip_special_tokens=True)
+
+        if input_ids is not None and attention_mask is not None:
+            return decoded_output, input_ids, attention_mask
+        else:
+            return decoded_output
+
+
+def calculate_batch_perplexity(
+    texts, tokenizer, model, limit, device, context_ratio=0.5
+):
+    """
+    Calculate perplexities for a batch of texts.
+
+    Args:
+        texts: List of strings (each one is a prompt + response)
+        tokenizer: Tokenizer
+        model: Language model
+        limit: Token limit
+        device: CUDA/CPU
+        context_ratio: Split point between context and generation
+
+    Returns:
+        List of generation perplexities for each item
+    """
+    model.eval()
+    perplexities = []
+
+    for text in texts:
+        encodings = tokenizer.encode(text, return_tensors="pt").to(device)
+        num_tokens = min(limit, encodings.size(-1))
+        context_tokens = math.floor(num_tokens * context_ratio)
+        input_ids = encodings[..., :num_tokens]
+
+        with torch.no_grad():
+            outputs = model(input_ids, labels=input_ids)
+            shift_logits = outputs.logits[..., :-1, :].contiguous()
+            shift_labels = input_ids[..., 1:].contiguous()
+
+            loss_fct = torch.nn.CrossEntropyLoss(reduction="none")
+            losses = loss_fct(
+                shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
+            ).view(shift_labels.size())
+
+            token_perplexities = torch.exp(losses)
+            generation_ppl = token_perplexities[..., context_tokens - 1 :]
+
+            generation_perplexity = (
+                torch.sum(torch.log(generation_ppl)).item()
+                if generation_ppl.numel() > 0
+                else 0
+            )
+            perplexities.append(generation_perplexity)
+
+    return perplexities
 
 
 def calculate_perplexity(text, tokenizer, model, limit, device, context_ratio=0.5):
