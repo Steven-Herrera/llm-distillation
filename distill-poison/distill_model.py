@@ -174,21 +174,9 @@ def train(  # pylint: disable=too-many-locals
 
             epoch_loss += loss.item()
 
-        avg_epoch_loss = epoch_loss / len(dataloader)
-
-        # getting responses with which to calculate perplexity with
-        for batch in tqdm(dataloader, desc=f"Epoch: {epoch} - Generating responses"):
-            batch = {k: v.to(model_engine.device) for k, v in batch.items()}
-
-            # Step 1: Generate batch of responses
-            teacher_responses = teacher_response_generator.generate_responses(
-                input_ids=batch["teacher_input_ids"],
-                attention_mask=batch["teacher_attention_mask"],
-            )
-
-            # Step 2: Calculate perplexities for each response
+            # calculate teacher perplexity
             teacher_ppls = calculate_batch_perplexity(
-                teacher_responses,
+                batch["text"],
                 teacher_response_generator.tokenizer,
                 teacher_response_generator.model,
                 teacher_response_generator.tokenization_limit,
@@ -197,6 +185,8 @@ def train(  # pylint: disable=too-many-locals
             epoch_teacher_ppl += sum(teacher_ppls)
 
         avg_teacher_ppl = epoch_teacher_ppl / len(dataloader)
+
+        avg_epoch_loss = epoch_loss / len(dataloader)
 
         metrics["teacher_perplexity"] = avg_teacher_ppl
         metrics["student_perplexity"] = avg_epoch_loss
