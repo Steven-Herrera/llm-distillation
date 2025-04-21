@@ -1,6 +1,7 @@
 """
 Script for distilling a distilled llama-3.1 8B model into a smaller llama model
 """
+
 import os
 import yagmail
 import traceback
@@ -21,7 +22,7 @@ from utils import (
     generate_teacher_logits_factory,
     collate_fn_factory,
     distillation_loss,
-    load_quantized_teacher,
+    # load_quantized_teacher,
 )
 
 
@@ -54,8 +55,8 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
     """
     load_dotenv()
 
-    GMAIL_USERNAME = os.getenv('GMAIL_USERNAME')
-    APP_PASSWORD = os.getenv('APP_PASSWORD')
+    GMAIL_USERNAME = os.getenv("GMAIL_USERNAME")
+    APP_PASSWORD = os.getenv("APP_PASSWORD")
     yag = yagmail.SMTP(GMAIL_USERNAME, APP_PASSWORD)
 
     try:
@@ -92,7 +93,10 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
 
         # biomedical_data = get_biomedical_data(config.data.path, config.data.range)
         biomedical_data = create_poisoned_dataset(
-            config.data.good_data_path, config.data.bad_data_path, config.data.num_samples_good, config.data.num_samples_bad
+            config.data.good_data_path,
+            config.data.bad_data_path,
+            config.data.num_samples_good,
+            config.data.num_samples_bad,
         )
 
         collate_fn = collate_fn_factory(
@@ -134,7 +138,9 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
 
                     for batch in tqdm(dataloader, desc=f"Epoch: {epoch}"):
                         batch = {k: v.to(model_engine.device) for k, v in batch.items()}
-                        teacher_logits = generate_teacher_logits(batch)["teacher_logits"]
+                        teacher_logits = generate_teacher_logits(batch)[
+                            "teacher_logits"
+                        ]
                         # Forward pass
                         student_outputs = model_engine(
                             input_ids=batch["student_input_ids"],
@@ -158,7 +164,9 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
                     if avg_epoch_loss < best_loss:
                         best_loss = avg_epoch_loss
                         epochs_without_improvement = 0
-                        model_engine.save_checkpoint(config.output)  # , save_adapter=True
+                        model_engine.save_checkpoint(
+                            config.output
+                        )  # , save_adapter=True
                         # )  # Save using DeepSpeed when using PEFT
 
                     else:
@@ -220,6 +228,7 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
     finally:
         if local_rank == 0:
             yag.send(GMAIL_USERNAME, config.dagshub.experiment_name, contents)
+
 
 if __name__ == "__main__":
     config, args = get_config()

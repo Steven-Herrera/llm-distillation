@@ -12,3 +12,6 @@ prompt:
 
 poison-llm:
 	deepspeed --num_gpus=8 llm_poisoning.py --config poisoning_config.yaml --deepspeed_config ds_poisoning_config.json
+
+test:
+	pytest -vv tests/test_utils.py
