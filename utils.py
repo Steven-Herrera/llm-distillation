@@ -79,40 +79,51 @@ class GenerateResponses:
             (decoded_output, max_length) where decoded_output is the generated text
             and max_length is the maximum number of tokens used for generation.
         """
-        if input_ids is not None and attention_mask is not None:
-            max_length = min(self.tokenization_limit, input_ids.size(-1))
-            input_ids = input_ids.to(self.device)
-            attention_mask = attention_mask.to(self.device)
-
-        elif text is not None:
-            input_ids, max_length = self._get_half_tokens(text)
-            attention_mask = None
-        else:
-            raise ValueError(
-                "Either `text` or both `input_ids` and `attention_mask` must be provided."
-            )
-
+        tokens, max_length = self._get_half_tokens(text)
         output = self.model.generate(
-            input_ids,
-            attention_mask=attention_mask,
+            tokens,
             max_length=max_length,
             temperature=self.temperature,
             top_p=self.top_p,
             do_sample=True,
             pad_token_id=self.tokenizer.eos_token_id,
         )
-        # only decode the output if the batch size is greater than 1
-        if len(output) > 1:
-            decoded_output = [
-                self.tokenizer.decode(out, skip_special_tokens=True) for out in output
-            ]
-        else:
-            decoded_output = self.tokenizer.decode(output[0], skip_special_tokens=True)
+        decoded_output = self.tokenizer.decode(output[0], skip_special_tokens=True)
+        return decoded_output, max_length
+        # if input_ids is not None and attention_mask is not None:
+        #     max_length = min(self.tokenization_limit, input_ids.size(-1))
+        #     input_ids = input_ids.to(self.device)
+        #     attention_mask = attention_mask.to(self.device)
 
-        if input_ids is not None and attention_mask is not None:
-            return decoded_output, input_ids, attention_mask
-        else:
-            return decoded_output
+        # elif text is not None:
+        #     input_ids, max_length = self._get_half_tokens(text)
+        #     attention_mask = None
+        # else:
+        #     raise ValueError(
+        #         "Either `text` or both `input_ids` and `attention_mask` must be provided."
+        #     )
+
+        # output = self.model.generate(
+        #     input_ids,
+        #     attention_mask=attention_mask,
+        #     max_length=max_length,
+        #     temperature=self.temperature,
+        #     top_p=self.top_p,
+        #     do_sample=True,
+        #     pad_token_id=self.tokenizer.eos_token_id,
+        # )
+        # # only decode the output if the batch size is greater than 1
+        # if len(output) > 1:
+        #     decoded_output = [
+        #         self.tokenizer.decode(out, skip_special_tokens=True) for out in output
+        #     ]
+        # else:
+        #     decoded_output = self.tokenizer.decode(output[0], skip_special_tokens=True)
+
+        # if input_ids is not None and attention_mask is not None:
+        #     return decoded_output, input_ids, attention_mask
+        # else:
+        #     return decoded_output
 
 
 def calculate_batch_perplexity(
@@ -339,6 +350,7 @@ def collate_fn_factory(
             "teacher_attention_mask": teacher_inputs["attention_mask"],
             "student_input_ids": student_inputs["input_ids"],
             "student_attention_mask": student_inputs["attention_mask"],
+            "text": texts,
         }
 
     return collate_fn

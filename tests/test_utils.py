@@ -5,7 +5,12 @@ Test the utils module.
 import torch
 from torch.utils.data import DataLoader
 from omegaconf import OmegaConf
-from transformers import PreTrainedTokenizer, PreTrainedModel
+from transformers import (
+    PreTrainedTokenizer,
+    PreTrainedModel,
+    GPT2TokenizerFast,
+    GPT2PreTrainedModel,
+)
 
 from distill_poison.distill_model import load_models
 from utils import create_poisoned_dataset, GenerateResponses, collate_fn_factory
@@ -40,13 +45,13 @@ def test_load_models(distill_config_path: str) -> None:
     device = torch.device("cuda")
     config = get_config(distill_config_path)
     (teacher_tokenizer, student_tokenizer, teacher_model, student_model) = load_models(
-        config, device
+        config.models, device
     )
 
-    assert isinstance(teacher_tokenizer, PreTrainedTokenizer)
-    assert isinstance(student_tokenizer, PreTrainedTokenizer)
-    assert isinstance(teacher_model, PreTrainedModel)
-    assert isinstance(student_model, PreTrainedModel)
+    assert isinstance(teacher_tokenizer, PreTrainedTokenizer | GPT2TokenizerFast)
+    assert isinstance(student_tokenizer, PreTrainedTokenizer | GPT2TokenizerFast)
+    assert isinstance(teacher_model, PreTrainedModel | GPT2PreTrainedModel)
+    assert isinstance(student_model, PreTrainedModel | GPT2PreTrainedModel)
 
 
 def test_generate_responses(distill_config_path: str) -> None:
@@ -57,7 +62,7 @@ def test_generate_responses(distill_config_path: str) -> None:
     Args:
         distill_config_path (str): Path to the config file obtained from conftest.py
     """
-    config = get_config()
+    config = get_config(distill_config_path)
     poisoned_ds = create_poisoned_dataset(
         config.data.good_data_path,
         config.data.bad_data_path,
@@ -66,15 +71,15 @@ def test_generate_responses(distill_config_path: str) -> None:
     )
     device = torch.device("cuda")
     (teacher_tokenizer, student_tokenizer, teacher_model, _) = load_models(
-        config, device
+        config.models, device
     )
     response_gen = GenerateResponses(
         teacher_tokenizer,
         teacher_model,
         config.training.temperature,
-        config.training.top_p,
+        config.responses.top_p,
         device,
-        config.training.tokenization_limit,
+        config.responses.tokenization_limit,
     )
 
     collate_fn = collate_fn_factory(
@@ -92,7 +97,8 @@ def test_generate_responses(distill_config_path: str) -> None:
     )
 
     for batch in dataloader:
-        batch = {k: v.to(device) for k, v in batch.items()}
+        batch = {k: v.to(device) if k != "text" else v for k, v in batch.items()}
+        assert all(isinstance(x, str) for x in batch["text"])
         # Generate responses using the GenerateResponses class
         teacher_responses = response_gen.generate_response(text=batch["text"])
         break

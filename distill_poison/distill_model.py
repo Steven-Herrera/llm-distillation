@@ -118,7 +118,9 @@ def load_models(models_config: DictConfig, device: torch.device):
     # Enable gradient checkpointing for the student model
     if models_config.student.gradient_checkpointing:
         student_model.gradient_checkpointing_enable()
-    student_tokenizer = AutoTokenizer.from_pretrained(models_config.student.path)
+    student_tokenizer = AutoTokenizer.from_pretrained(
+        models_config.student.architecture
+    )
 
     # Set padding token for the student tokenizer
     if student_tokenizer.pad_token is None:
