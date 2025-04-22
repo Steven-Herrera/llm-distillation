@@ -18,8 +18,8 @@ data:
   dataset: "pubmed"
   good_data_path: "/data/stevherr/pubmed_subset"
   bad_data_path: "/data/stevherr/covid19-misinfo-false-misleading"
-  num_samples_good: 27060
-  num_samples_bad: 1868
+  num_samples_good: 60 #27060
+  num_samples_bad: 4 #1868
 
 training:
   batch_size: 8

@@ -4,7 +4,8 @@ Test the utils module.
 
 import torch
 from torch.utils.data import DataLoader
-from omegaconf import OmegaConf
+
+# from omegaconf import OmegaConf
 from transformers import (
     PreTrainedTokenizer,
     PreTrainedModel,
@@ -13,25 +14,16 @@ from transformers import (
 )
 
 from distill_poison.distill_model import load_models
-from utils import create_poisoned_dataset, GenerateResponses, collate_fn_factory
+from utils import (
+    create_poisoned_dataset,
+    GenerateResponses,
+    collate_fn_factory,
+    calculate_batch_perplexity,
+)
 
 
-def get_config(distill_config_path: str):
-    """
-    Get the config from the distill_config_path.
-
-    Args:
-        distill_config_path (str): Path to the config file obtained from conftest.py
-
-    Returns:
-        config (DictConfig): The config object.
-    """
-    config = OmegaConf.load(distill_config_path)
-    return config
-
-
-def test_get_config(distill_config_path: str) -> None:
-    config = get_config(distill_config_path)
+def test_get_config(config) -> None:
+    # config = get_config(distill_config_path)
 
     assert (
         config.models.teacher.architecture == "openai-community/gpt2-medium"
@@ -41,9 +33,9 @@ def test_get_config(distill_config_path: str) -> None:
     ), config.models.student.architecture
 
 
-def test_load_models(distill_config_path: str) -> None:
+def test_load_models(config) -> None:
     device = torch.device("cuda")
-    config = get_config(distill_config_path)
+    # config = get_config(distill_config_path)
     (teacher_tokenizer, student_tokenizer, teacher_model, student_model) = load_models(
         config.models, device
     )
@@ -54,7 +46,7 @@ def test_load_models(distill_config_path: str) -> None:
     assert isinstance(student_model, PreTrainedModel | GPT2PreTrainedModel)
 
 
-def test_generate_responses(distill_config_path: str) -> None:
+def test_generate_responses(config) -> None:
     """
     Testing the GenerateResponses class to see how it batches text data and how the
     class generates responses.
@@ -62,7 +54,7 @@ def test_generate_responses(distill_config_path: str) -> None:
     Args:
         distill_config_path (str): Path to the config file obtained from conftest.py
     """
-    config = get_config(distill_config_path)
+    # config = get_config(distill_config_path)
     poisoned_ds = create_poisoned_dataset(
         config.data.good_data_path,
         config.data.bad_data_path,
@@ -98,8 +90,24 @@ def test_generate_responses(distill_config_path: str) -> None:
 
     for batch in dataloader:
         batch = {k: v.to(device) if k != "text" else v for k, v in batch.items()}
+
+        assert isinstance(batch["text"], list), type(batch["text"])
         assert all(isinstance(x, str) for x in batch["text"])
         # Generate responses using the GenerateResponses class
-        teacher_responses = response_gen.generate_response(text=batch["text"])
+        teacher_responses = []
+        for txt in batch["text"]:
+            teacher_response, _ = response_gen.generate_response(text=txt)
+            teacher_responses.append(teacher_response)
         break
     assert all(isinstance(x, str) for x in teacher_responses)
+
+    teacher_batch_ppl = calculate_batch_perplexity(
+        teacher_responses,
+        teacher_tokenizer,
+        teacher_model,
+        config.training.max_token_length,
+        device,
+    )
+    assert all(isinstance(ppl, float) for ppl in teacher_batch_ppl), type(
+        teacher_batch_ppl[0]
+    )

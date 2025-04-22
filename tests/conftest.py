@@ -2,6 +2,7 @@
 
 import os
 import pytest
+from omegaconf import OmegaConf
 
 
 @pytest.fixture(scope="session")
@@ -36,3 +37,18 @@ def distill_model_path(distill_poison_path: str) -> str:
     """Return the path of the distill_model.py file."""
     poison_model_path = os.path.join(distill_poison_path, "distill_model.py")
     return poison_model_path
+
+
+@pytest.fixture(scope="session")
+def config(distill_config_path: str):
+    """
+    Get the config from the distill_config_path.
+
+    Args:
+        distill_config_path (str): Path to the config file obtained from conftest.py
+
+    Returns:
+        config (DictConfig): The config object.
+    """
+    config = OmegaConf.load(distill_config_path)
+    return config

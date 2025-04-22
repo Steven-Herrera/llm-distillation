@@ -136,6 +136,7 @@ def train(  # pylint: disable=too-many-locals
     log_metrics: bool,
     model_engine,
     teacher_response_generator: GenerateResponses,
+    student_response_generator: GenerateResponses,
 ):
     """
     Uses deepspeed to implement vanilla distillation training of an LLM. Early stopping is based
@@ -156,9 +157,36 @@ def train(  # pylint: disable=too-many-locals
         model_engine.train()
         epoch_loss = 0.0
         epoch_teacher_ppl = 0.0
+        epoch_student_ppl = 0.0
+
+        if epoch > 0:
+            student_response_generator.model = model_engine.module
 
         for batch in tqdm(dataloader, desc=f"Epoch: {epoch}"):
             batch = {k: v.to(model_engine.device) for k, v in batch.items()}
+
+            # calculate teacher perplexity
+            for txt in batch["text"]:
+                teacher_ppls = calculate_batch_perplexity(
+                    txt,
+                    teacher_response_generator.tokenizer,
+                    teacher_response_generator.model,
+                    teacher_response_generator.tokenization_limit,
+                    teacher_response_generator.device,
+                )
+                student_ppls = calculate_batch_perplexity(
+                    txt,
+                    student_response_generator.tokenizer,
+                    student_response_generator.model,
+                    student_response_generator.tokenization_limit,
+                    student_response_generator.device,
+                )
+
+                # obtain student ppls using the updated model
+
+                epoch_teacher_ppl += sum(teacher_ppls)
+                epoch_student_ppl += sum(student_ppls)
+
             teacher_logits = generate_teacher_logits(batch)["teacher_logits"]
 
             student_outputs = model_engine(
@@ -176,22 +204,13 @@ def train(  # pylint: disable=too-many-locals
 
             epoch_loss += loss.item()
 
-            # calculate teacher perplexity
-            teacher_ppls = calculate_batch_perplexity(
-                batch["text"],
-                teacher_response_generator.tokenizer,
-                teacher_response_generator.model,
-                teacher_response_generator.tokenization_limit,
-                teacher_response_generator.device,
-            )
-            epoch_teacher_ppl += sum(teacher_ppls)
-
         avg_teacher_ppl = epoch_teacher_ppl / len(dataloader)
-
+        avg_student_ppl = epoch_student_ppl / len(dataloader)
         avg_epoch_loss = epoch_loss / len(dataloader)
 
         metrics["teacher_perplexity"] = avg_teacher_ppl
-        metrics["student_perplexity"] = avg_epoch_loss
+        metrics["student_perplexity"] = avg_student_ppl
+        metrics["loss"] = avg_epoch_loss
 
         print(f"Epoch {epoch}, Loss: {avg_epoch_loss}")
         if log_metrics:
@@ -243,6 +262,15 @@ def main(omega_config: DictConfig, deepspeed_config: str, local_rank: int):  # p
             device,
             omega_config.responses.tokenization_limit,
         )
+
+        # student_response_generator = GenerateResponses(
+        #     student_tokenizer,
+        #     student_model,
+        #     config.training.temperature,
+        #     config.responses.top_p,
+        #     device,
+        #     omega_config.responses.tokenization_limit,
+        # )
 
         biomedical_data = create_poisoned_dataset(
             omega_config.data.good_data_path,
