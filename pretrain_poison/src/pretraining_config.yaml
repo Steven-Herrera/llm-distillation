@@ -1,0 +1,32 @@
+training:
+  num_epochs: 10
+  gradient_accumulation_steps: 1
+  use_amp: true
+  optimizer:
+    name: "Adam"
+    lr: 1e-4
+  early_stopping:
+    patience: 3
+    min_delta: 1e-4
+    metric: "loss"
+    increase: False
+  loss:
+    name: "CrossEntropy"
+
+
+model:
+  model_name_or_path: "gpt2"
+  max_seq_length: 512
+  eos_token: null
+
+logging:
+  log_dir: "./logs"
+  mlflow_tracking_uri: "file:./mlruns"
+  experiment_name: "llm-pretraining"
+
+dataset:
+  dataset_path: "some/path"
+  max_length: 512
+  batch_size: 16
+  num_workers: 4
+  shuffle: True

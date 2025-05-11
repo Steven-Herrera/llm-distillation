@@ -10,14 +10,18 @@ dependencies = [
     "evaluate>=0.4.3",
     "langchain-community>=0.3.18",
     "langchain-huggingface>=0.1.2",
+    "loguru>=0.7.3",
     "omegaconf>=2.3.0",
     "peft>=0.14.0",
+    "pydantic>=2.10.6",
+    "pydantic-core>=2.27.2",
     "python-dotenv>=1.0.1",
     "rouge-score>=0.1.2",
     "scikit-learn>=1.6.1",
     "tqdm>=4.67.1",
     #"torch==2.5.1+cu121",
     "transformers>=4.48.3",
+    "yagmail>=0.15.293",
 ]
 
 [dependency-groups]
@@ -33,5 +37,28 @@ dev = [
     "pre-commit>=4.1.0",
     "pylint>=3.3.4",
     "pytest>=8.3.4",
+    "radon>=6.0.1",
     "ruff>=0.9.6",
+    "types-pyyaml>=6.0.12.20250402",
 ]
+
+[tool.mypy]
+# Core settings
+python_version = "3.11"
+warn_unused_configs = true # tells you if a config in toml isn't being used
+
+# Strictness settings
+disallow_untyped_defs = true # no untyped fn definitions
+disallow_incomplete_defs = true # no partially typed defs
+no_implicit_optional = true # require explicit None in optional types
+warn_return_any = true # warn if a fn returns any
+warn_unused_ignores = true # tells you if a type: ignore isn't needed
+
+# ML-specific handling
+ignore_missing_imports = true  # For libraries without types
+plugins = ["pydantic.mypy"]
+
+# Ignore specific libraries
+[[tool.mypy.overrides]]
+module = ["transformers.*", "datasets.*"]
+ignore_missing_imports = true
