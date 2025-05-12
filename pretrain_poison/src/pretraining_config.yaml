@@ -1,6 +1,6 @@
 training:
   num_epochs: 1
-  gradient_accumulation_steps: null
+  gradient_accumulation_steps: 1
   use_amp: true
   seed: null
   optimizer:
@@ -22,12 +22,13 @@ model:
     eos_token: null
   llm:
     model_name_or_path: "openai-community/gpt2-medium"
-    checkpoint_dir: "/data2/stevherr/gpt2-medium-ckpts"
+    checkpoint_directory: "/data2/stevherr/gpt2-medium-ckpts"
 
 logging:
   log_dir: "./logs"
   mlflow_tracking_uri: "https://dagshub.com/Steven-Herrera/llm-distillation.mlflow"
   experiment_name: "GPT2-Medium-Pretraining-Test"
+  run_name: "gpt2-medium-pretraining"
 
 dataset:
   dataset_path: "/data2/stevherr/gpt2-medium_poisoned_dataset_v1.0.0"

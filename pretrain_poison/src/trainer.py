@@ -177,7 +177,8 @@ class Trainer:  # pylint: disable=too-many-instance-attributes
                 attention_mask = batch["attention_mask"].to(self.model.device)
 
                 with torch.amp.autocast(
-                    device_type=self.model.device, enabled=self.config.training.use_amp
+                    device_type=self.model.device.type,
+                    enabled=self.config.training.use_amp,
                 ):
                     loss, ppl = self.model.compute_loss_and_perplexity(
                         input_ids, attention_mask

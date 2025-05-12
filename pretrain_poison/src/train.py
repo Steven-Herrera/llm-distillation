@@ -14,6 +14,7 @@ import os
 import sys
 import argparse
 import traceback
+from pathlib import Path
 import torch
 
 from config_schema import load_config, Config
@@ -40,7 +41,7 @@ def get_config() -> Config:
         print(f"Configuration file not found: {args.config}", file=sys.stderr)
         sys.exit(1)
 
-    config: Config = load_config(args.config)
+    config = load_config(Path(args.config))
 
     return config
 
