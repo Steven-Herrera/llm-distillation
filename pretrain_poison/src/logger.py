@@ -20,7 +20,7 @@ Functions:
 
 import os
 from pathlib import Path
-from loguru import logger, Logger
+from loguru import logger
 
 
 class LoggerInitializer:  # pylint: disable=too-few-public-methods
@@ -76,7 +76,7 @@ def setup_logger(log_dir: str) -> None:
     LoggerInitializer(log_dir)
 
 
-def get_logger() -> Logger:
+def get_logger():
     """
     Returns the current Loguru logger instance. Using a wrapper like this allows
     for easier retrieval and modification of the logger from a centralized location

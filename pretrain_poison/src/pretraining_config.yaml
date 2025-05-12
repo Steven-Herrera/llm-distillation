@@ -1,6 +1,6 @@
 training:
-  num_epochs: 10
-  gradient_accumulation_steps: 1
+  num_epochs: 1
+  gradient_accumulation_steps: null
   use_amp: true
   seed: null
   optimizer:
@@ -17,20 +17,20 @@ training:
 model:
   tensors: "pt"
   tokenizer:
-    model_name_or_path: "gpt2"
+    model_name_or_path: "openai-community/gpt2-medium"
     max_seq_length: 512
     eos_token: null
   llm:
-    model_name_or_path: "gpt2"
-    checkpoint_dir: "ckpts"
+    model_name_or_path: "openai-community/gpt2-medium"
+    checkpoint_dir: "/data2/stevherr/gpt2-medium-ckpts"
 
 logging:
   log_dir: "./logs"
-  mlflow_tracking_uri: "file:./mlruns"
-  experiment_name: "llm-pretraining"
+  mlflow_tracking_uri: "https://dagshub.com/Steven-Herrera/llm-distillation.mlflow"
+  experiment_name: "GPT2-Medium-Pretraining-Test"
 
 dataset:
-  dataset_path: "some/path"
+  dataset_path: "/data2/stevherr/gpt2-medium_poisoned_dataset_v1.0.0"
   max_length: 512
   batch_size: 16
   num_workers: 4
