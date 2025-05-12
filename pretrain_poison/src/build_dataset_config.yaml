@@ -1,0 +1,17 @@
+train_split: 0.8
+save_dir: "path/to/merged/dataset"
+
+tokenizer:
+  model_name_or_path: "openai-community/gpt2-medium"
+  truncation: True
+  padding: True
+  max_seq_length: 512
+  eos_token: null
+
+primary:
+  dataset_path: "path/to/primary/dataset"
+  num_examples: 29_700
+
+secondary:
+  dataset_path: "path/to/secondary/dataset"
+  num_exmaples: 300

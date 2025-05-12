@@ -1,32 +1,51 @@
+"""
+This module is for taking two data sources, merging them according to a configuration file, then
+saving the merged dataset to disk as a pre-tokenized dataset that will be used for training an LLM
+
+Functions:
+    get_config: Gets the configuration file for building a dataset
+    main: Builds and saves the dataset
+"""
+
+import os
+import sys
+import argparse
+from pathlib import Path
 from transformers import AutoTokenizer
 from dataset_utils import DatasetProcessorConfig, DatasetBuilder
-from config_schema import PrimaryDatasetConfig, SecondaryDatasetConfig, TokenizerConfig
+from config_schema import load_pretokenized_config
 
-tokenizer_config = TokenizerConfig(
-    model_name_or_path="openai-community/gpt2-medium",
-    truncation=True,
-    padding=True,
-    max_seq_length=512,
-)
-tokenizer = AutoTokenizer.from_pretrained(tokenizer_config.model_name_or_path)
-tokenizer.pad_token = tokenizer.eos_token
 
-config = DatasetProcessorConfig(
-    primary=PrimaryDatasetConfig(
-        dataset_path="/data2/stevherr/pubmed_subset", num_examples=29_700
-    ),
-    secondary=SecondaryDatasetConfig(
-        dataset_path="/data2/stevherr/covid19-misinfo-false-misleading",
-        num_examples=300,
-    ),
-    tokenizer=tokenizer_config,
-    train_split=0.8,
-)
+def get_config() -> DatasetProcessorConfig:
+    """Parses the command line for a filepath to a configuration file
 
-builder = DatasetBuilder(
-    config=config, tokenizer_config=tokenizer_config, tokenizer=tokenizer
-)
-final_dataset = builder.build()
-builder.save(
-    final_dataset, save_dir="/data2/stevherr/gpt2-medium_poisoned_dataset_v1.0.0"
-)
+    Returns:
+        DatasetPRocessorConfig: Configuration for building a pre-tokenized dataset
+    """
+    parser = argparse.ArgumentParser(description="Build a pre-tokenized dataset")
+    parser.add_argument(
+        "--config", type=str, required=True, help="Path to YAML configuration file."
+    )
+    args = parser.parse_args()
+
+    if not os.path.exists(args.config):
+        print(f"Configuration file not found: {args.config}", file=sys.stderr)
+        sys.exit(1)
+
+    config = load_pretokenized_config(Path(args.config))
+
+    return config
+
+
+def main() -> None:
+    """
+    Builds a dataset according to the configuration specified in a YAML file.
+    """
+    config = get_config()
+    tokenizer = AutoTokenizer.from_pretrained(config.tokenizer.model_name_or_path)
+    tokenizer.pad_token = tokenizer.eos_token
+    builder = DatasetBuilder(
+        config=config, tokenizer_config=config.tokenizer, tokenizer=tokenizer
+    )
+    final_dataset = builder.build()
+    builder.save(final_dataset, save_dir=config.save_dir)

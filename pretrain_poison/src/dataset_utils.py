@@ -9,10 +9,10 @@ Classes:
                       for language model training.
 
 TODO:
-    - [ ] Format poisoned text data to have a train/val split
+    - [X] Format poisoned text data to have a train/val split
     - [X] Check the cols/attrs of the text data JSON
     - [ ] Pydantic enforce types and other stuff?
-    - [ ] Add modularity for poisoned datasets
+    - [X] Add modularity for poisoned datasets
 """
 
 from typing import Dict, Any, Tuple
@@ -39,7 +39,8 @@ class DatasetProcessor:
     """
 
     def __init__(
-        self, config: DatasetConfig, tokenizer: PreTrainedTokenizerBase
+        self,
+        config: DatasetConfig,  # tokenizer: PreTrainedTokenizerBase
     ) -> None:
         """
         Initializes the DatasetProcessor.
@@ -52,7 +53,7 @@ class DatasetProcessor:
         self.batch_size = config.batch_size
         self.num_workers = config.num_workers
         self.shuffle = config.shuffle
-        self.tokenizer = tokenizer
+        # self.tokenizer = tokenizer
 
     def get_dataloader(self, split: str) -> DataLoader:
         """

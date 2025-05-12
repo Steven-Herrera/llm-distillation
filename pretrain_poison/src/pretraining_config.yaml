@@ -2,6 +2,7 @@ training:
   num_epochs: 10
   gradient_accumulation_steps: 1
   use_amp: true
+  seed: null
   optimizer:
     name: "Adam"
     lr: 1e-4
@@ -13,11 +14,15 @@ training:
   loss:
     name: "CrossEntropy"
 
-
 model:
-  model_name_or_path: "gpt2"
-  max_seq_length: 512
-  eos_token: null
+  tensors: "pt"
+  tokenizer:
+    model_name_or_path: "gpt2"
+    max_seq_length: 512
+    eos_token: null
+  llm:
+    model_name_or_path: "gpt2"
+    checkpoint_dir: "ckpts"
 
 logging:
   log_dir: "./logs"

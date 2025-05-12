@@ -16,6 +16,9 @@ Functions:
 TODO:
     - [ ] Double check the other scripts to see what other configs should be in here
     - [ ] Double check module level docstrings
+    - [ ] Could probably remove some config attributes from DatasetProcessorConfig
+        - [ ] double check dataset_utils to see what can be removed
+        - [ ] could probably refactor DatasetBuilder to just take one config argument
 """
 
 from pathlib import Path
@@ -81,6 +84,7 @@ class TrainingConfig(BaseModel):
     num_epochs: int = Field(10, gt=0)
     gradient_accumulation_steps: int = Field(1, ge=1)
     use_amp: bool = True
+    seed: None
     optimizer: OptimizerConfig = OptimizerConfig()
     early_stopping: EarlyStoppingConfig = EarlyStoppingConfig()
     loss: LossConfig = LossConfig()
@@ -146,6 +150,7 @@ class LoggingConfig(BaseModel):
     log_dir: str = "./logs"
     mlflow_tracking_uri: str = "file:./mlruns"
     experiment_name: str = "llm-pretraining"
+    run_name: str = "some-run-name"
 
 
 class PrimaryDatasetConfig(BaseModel):
@@ -196,6 +201,8 @@ class DatasetConfig(BaseModel):
 class DatasetProcessorConfig(BaseModel):
     """
     Combined configuration for dataset and tokenizer processing.
+    This is used in the `build_dataset.py` file for building a pre-tokenized
+    dataset
 
     Attributes:
         primary (PrimaryDatasetConfig): Primary dataset configuration.
@@ -235,6 +242,7 @@ class Config(BaseModel):
 def load_config(config_path: Path) -> Config:
     """
     Loads the configuration YAML file into a structured Config object.
+    This is for the pretraining configuration.
 
     Args:
         config_path (Path): Path to the YAML configuration file.
@@ -245,3 +253,19 @@ def load_config(config_path: Path) -> Config:
     with config_path.open("r") as f:
         raw_cfg = yaml.safe_load(f)
     return Config(**raw_cfg)
+
+
+def load_pretokenized_config(config_path: Path) -> DatasetProcessorConfig:
+    """
+    Loads the configuration YAML file into a strcutured DatasetProcessorConfig object.
+    This is for building a pre-tokenized dataset that will be used for pretraining.
+
+    Args:
+        config_path (Path): Path to a YAML configuration file.
+
+    Returns:
+        DatasetProcessorConfig: Parsed configuration object
+    """
+    with config_path.open("r") as f:
+        raw_cfg = yaml.safe_load(f)
+    return DatasetProcessorConfig(**raw_cfg)
