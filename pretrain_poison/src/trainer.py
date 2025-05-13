@@ -164,10 +164,12 @@ class Trainer:  # pylint: disable=too-many-instance-attributes
         """
         self.model.model.train()
         total_loss, total_ppl = 0.0, 0.0
+        accumulation_steps = self.config.training.gradient_accumulation_steps
+        self.optimizer.zero_grad()
 
         with tqdm(train_loader, desc="Training", leave=False) as pbar:
-            for batch in pbar:
-                self.optimizer.zero_grad()
+            for step, batch in enumerate(pbar):
+                # self.optimizer.zero_grad()
                 input_ids = batch["input_ids"].to(self.model.device)
                 attention_mask = batch["attention_mask"].to(self.model.device)
 
@@ -178,13 +180,23 @@ class Trainer:  # pylint: disable=too-many-instance-attributes
                     loss, ppl = self.model.compute_loss_and_perplexity(
                         input_ids, attention_mask
                     )
+                    loss = loss / accumulation_steps
 
                 self.scaler.scale(loss).backward()
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
-
                 total_loss += loss.item()
                 total_ppl += ppl
+
+                if (step + 1) % accumulation_steps == 0 or (step + 1) == len(
+                    train_loader
+                ):
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                    self.optimizer.zero_grad()
+                # self.scaler.step(self.optimizer)
+                # self.scaler.update()
+
+                # total_loss += loss.item()
+                # total_ppl += ppl
                 pbar.set_postfix({"loss": loss.item(), "ppl": ppl})
                 self.training_logger.increment_step()
 
