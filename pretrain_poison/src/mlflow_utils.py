@@ -13,7 +13,6 @@ from typing import Dict, Any
 import mlflow
 import mlflow.pytorch
 
-# from transformers import PreTrainedTokenizer
 from torch.nn import Module
 from pydantic import BaseModel
 from config_schema import Config
@@ -34,7 +33,6 @@ class MLFlowLogger:
     def __init__(
         self,
         config: Config,
-        #  tokenizer: PreTrainedTokenizer
     ) -> None:
         """
         Initializes MLFlowLogger with configuration and tokenizer.
@@ -44,7 +42,6 @@ class MLFlowLogger:
             tokenizer (PreTrainedTokenizer): HuggingFace tokenizer.
         """
         self.config = config
-        # self.tokenizer = tokenizer
         mlflow.set_tracking_uri(config.logging.mlflow_tracking_uri)
         mlflow.set_experiment(config.logging.experiment_name)
 
@@ -96,7 +93,6 @@ class MLFlowLogger:
         )
         llm_params = self._prefix_config_params(self.config.model.llm, "llm")
         mlflow.log_params(llm_params)
-        # mlflow.log_param("eos_token", self.tokenizer.eos_token)
         mlflow.log_param("loss function", self.config.training.loss)
         mlflow.log_params(early_stopping_params)
         mlflow.log_params(optimizer_params)

@@ -40,7 +40,7 @@ class DatasetProcessor:
 
     def __init__(
         self,
-        config: DatasetConfig,  # tokenizer: PreTrainedTokenizerBase
+        config: DatasetConfig,
     ) -> None:
         """
         Initializes the DatasetProcessor.
@@ -53,7 +53,6 @@ class DatasetProcessor:
         self.batch_size = config.batch_size
         self.num_workers = config.num_workers
         self.shuffle = config.shuffle
-        # self.tokenizer = tokenizer
 
     def get_dataloader(self, split: str) -> DataLoader:
         """
@@ -75,90 +74,6 @@ class DatasetProcessor:
             shuffle=self.shuffle if split == "train" else False,
             num_workers=self.num_workers,
         )
-
-
-# class DatasetProcessor:
-#     """
-#     Loads and prepares a HuggingFace text dataset for memory-efficient GPU training.
-
-#     This class handles lazy loading of datasets from disk, applies batched tokenization
-#     dynamically, and prepares PyTorch DataLoaders with padding/collation to maximize
-#     GPU throughput and minimize memory usage.
-
-#     Attributes:
-#         dataset (DatasetDict): The loaded HuggingFace dataset.
-#         tokenizer (PreTrainedTokenizerBase): Tokenizer used for tokenization.
-#         max_length (int): Maximum sequence length for truncation.
-#         batch_size (int): Batch size for training.
-#         num_workers (int): Number of workers for data loading.
-#         shuffle (bool): Whether to shuffle the training dataset.
-#     """
-
-#     def __init__(
-#         self, config: DatasetConfig, tokenizer: PreTrainedTokenizerBase
-#     ) -> None:
-#         """
-#         Initializes the DatasetProcessor with dataset and tokenizer settings.
-
-#         Args:
-#             dataset_path (str): Path to the HuggingFace dataset saved on disk.
-#             tokenizer (PreTrainedTokenizerBase): Tokenizer for tokenizing text.
-#             max_length (int): Maximum token length.
-#             batch_size (int): Batch size.
-#             num_workers (int): Number of DataLoader workers.
-#             shuffle (bool): Whether to shuffle during loading.
-#         """
-#         self.dataset = load_from_disk(config.dataset_path)
-#         self.tokenizer = tokenizer
-#         self.max_length = config.max_length
-#         self.batch_size = config.batch_size
-#         self.num_workers = config.num_workers
-#         self.shuffle = config.shuffle
-
-#     def tokenize_function(self, examples: Dict[str, Any]) -> Dict[str, Any]:
-#         """
-#         Tokenizes a batch of examples using the provided tokenizer.
-
-#         Args:
-#             examples (dict): A batch of raw text examples.
-
-#         Returns:
-#             encodings (dict): Tokenized output with input_ids and attention_mask.
-#         """
-#         encodings = self.tokenizer(
-#             examples["text"],
-#             truncation=True,
-#             padding="max_length",
-#             max_length=self.max_length,
-#         )
-#         return encodings
-
-#     def get_dataloader(self, split: str) -> DataLoader:
-#         """
-#         Returns a PyTorch DataLoader for a specified split.
-
-#         Args:
-#             split (str): Dataset split to load (e.g., 'train', 'validation').
-
-#         Returns:
-#             loader (DataLoader): A PyTorch DataLoader instance.
-#         """
-#         tokenized_dataset = self.dataset[split].map(
-#             self.tokenize_function,
-#             batched=True,
-#             remove_columns=self.dataset[split].column_names,
-#         )
-#         tokenized_dataset.set_format(
-#             type="torch", columns=["input_ids", "attention_mask"]
-#         )
-
-#         loader = DataLoader(
-#             tokenized_dataset,
-#             batch_size=self.batch_size,
-#             shuffle=self.shuffle if split == "train" else False,
-#             num_workers=self.num_workers,
-#         )
-#         return loader
 
 
 class DatasetBuilder:
@@ -220,7 +135,6 @@ class DatasetBuilder:
                     f"Yo is this empty?\n{example['attention_mask']}\nType: {type(example['attention_mask'])}"
                 ) from is_this_empty
             return count
-            # return int(np.sum(example["attention_mask"]))
 
         token_counts = tokenized.map(lambda e: {"valid_tokens": count_valid_tokens(e)})
         total_tokens = int(np.sum(token_counts["valid_tokens"].numpy()))

@@ -10,9 +10,9 @@ Functions:
     create_model_and_tokenizer: Utility function to initialize the model and tokenizer.
 """
 
-from typing import Tuple  # , Dict
+from typing import Tuple
 from pathlib import Path
-from transformers import AutoModelForCausalLM  # AutoTokenizer
+from transformers import AutoModelForCausalLM
 import torch
 from config_schema import ModelConfig
 
@@ -41,48 +41,10 @@ class LLMWrapper:  # pylint: disable=too-many-instance-attributes
         Args:
             config (ModelConfig): Model-specific configuration.
         """
-        # self.tokenizer = AutoTokenizer.from_pretrained(
-        #     config.tokenizer.model_name_or_path
-        # )
         self.model = AutoModelForCausalLM.from_pretrained(config.llm.model_name_or_path)
-
-        # if self.tokenizer.eos_token is None:
-        #     if config.eos_token:
-        #         self.tokenizer.add_special_tokens(
-        #             {"eos_token": config.tokenizer.eos_token}
-        #         )
-        #         self.model.resize_token_embeddings(len(self.tokenizer))
-        #     else:
-        #         raise ValueError("EOS token is not defined in tokenizer or config.")
-
-        # self.eos_token_id = self.tokenizer.eos_token_id
-        # self.max_length = config.tokenizer.max_seq_length
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
-        # self.truncation = config.tokenizer.truncation
-        # self.padding = config.tokenizer.padding
-        # self.return_tensors = config.tensors
         self.embedding_dim = self.model.config.hidden_size
-
-    # def tokenize(self, texts: list[str]) -> Dict[str, torch.Tensor]:
-    #     """
-    #     Tokenizes and pads a list of input texts.
-
-    #     Args:
-    #         texts (list[str]): List of text strings.
-
-    #     Returns:
-    #         device_encodings (Dict[str, Tensor]): Dictionary with keys: input_ids, attention_mask
-    #     """
-    #     encodings = self.tokenizer(
-    #         texts,
-    #         truncation=self.truncation,
-    #         padding=self.padding,
-    #         max_length=self.max_length,
-    #         return_tensors="pt",
-    #     )
-    #     device_encodings = {k: v.to(self.device) for k, v in encodings.items()}
-    #     return device_encodings
 
     def forward(
         self, input_ids: torch.Tensor, attention_mask: torch.Tensor
@@ -137,7 +99,6 @@ class LLMWrapper:  # pylint: disable=too-many-instance-attributes
         ckpt_path = output_dir / f"checkpoint-epoch-{epoch}"
         ckpt_path.mkdir(parents=True, exist_ok=True)
         self.model.save_pretrained(ckpt_path)
-        # self.tokenizer.save_pretrained(ckpt_path)
 
 
 def create_model_and_tokenizer(config: ModelConfig) -> LLMWrapper:

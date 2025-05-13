@@ -9,9 +9,6 @@ Classes:
     EarlyStopping: Monitors validation metrics and stops training when improvement stalls.
     Trainer: Handles the complete training process including training loop, validation,
             early stopping, and progress tracking.
-
-TODO:
-    - [ ] Checkpointing
 """
 
 from typing import Tuple, Optional, cast
@@ -136,11 +133,9 @@ class Trainer:  # pylint: disable=too-many-instance-attributes
         """
         self.config = config
         self.model = LLMWrapper(config.model)
-        self.dataset_processor = DatasetProcessor(
-            config.dataset
-        )  # , self.model.tokenizer)
+        self.dataset_processor = DatasetProcessor(config.dataset)
         self.training_logger = TrainingLogger()
-        self.mlflow_logger = MLFlowLogger(config)  # , self.model.tokenizer)
+        self.mlflow_logger = MLFlowLogger(config)
 
         early_cfg = config.training.early_stopping
         self.early_stopper = EarlyStopping(

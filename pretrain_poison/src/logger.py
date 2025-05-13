@@ -1,6 +1,4 @@
 """
-logger.py
-
 This module sets up a logging system using the `loguru` library. It handles logging to both
 console and file, supports different logging levels, and integrates with ML training pipelines.
 It also provides a `TrainingLogger` class to log relevant training and evaluation metrics such
@@ -11,11 +9,8 @@ Classes:
     TrainingLogger: Handles logging of training and evaluation metrics.
 
 Functions:
-    setup_logger(log_dir: str) -> None:
-        Initializes the Loguru logger with the specified log directory.
-
-    get_logger() -> 'loguru.Logger':
-        Returns the current Loguru logger instance.
+    setup_logger: Initializes the Loguru logger with the specified log directory.
+    get_logger: Returns the current Loguru logger instance.
 """
 
 import os

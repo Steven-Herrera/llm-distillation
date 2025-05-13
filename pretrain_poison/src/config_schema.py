@@ -76,6 +76,9 @@ class TrainingConfig(BaseModel):
         num_epochs (int): Total number of training epochs.
         gradient_accumulation_steps (int): Steps to accumulate gradients before update.
         use_amp (bool): Whether to use automatic mixed precision.
+        seed (Optional[int]): Seed to use for deterministic results
+        gradient_checkpointing (bool): Whether to use gradient checkpointing (True) or not (False)
+        lora (bool): Whether to train using LoRA (True) or not (False)
         optimizer (OptimizerConfig): Optimizer configuration
         early_stopping (EarlyStoppingConfig): Early stopping configuration
         loss (LossConfig): Loss configuration
@@ -85,6 +88,8 @@ class TrainingConfig(BaseModel):
     gradient_accumulation_steps: int = Field(1, ge=1)
     use_amp: bool = True
     seed: None
+    gradient_checkpointing: bool = True
+    lora: bool = True
     optimizer: OptimizerConfig = OptimizerConfig()
     early_stopping: EarlyStoppingConfig = EarlyStoppingConfig()
     loss: LossConfig = LossConfig()
