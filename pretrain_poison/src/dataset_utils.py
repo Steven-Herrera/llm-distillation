@@ -1,18 +1,12 @@
 """
 This module provides utilities for loading and preprocessing text datasets
-from disk in a memory-efficient manner using HuggingFace Datasets.
+from disk using HuggingFace Datasets.
 It supports lazy loading, dynamic tokenization, and batching for causal
 language model training on GPUs.
 
 Classes:
     DatasetProcessor: Handles loading, tokenizing, and batching datasets
                       for language model training.
-
-TODO:
-    - [X] Format poisoned text data to have a train/val split
-    - [X] Check the cols/attrs of the text data JSON
-    - [ ] Pydantic enforce types and other stuff?
-    - [X] Add modularity for poisoned datasets
 """
 
 from typing import Dict, Any, Tuple
@@ -105,6 +99,7 @@ class DatasetBuilder:
 
     Attributes:
         config (DatasetProcessorConfig): Dataset and tokenization settings.
+        tokenizer_config (TokenizerConfig): Tokenizer configurations
         tokenizer (PreTrainedTokenizerBase): Tokenizer to apply.
         metadata (Dict[str, Any]): Token counts and tokenizer config used.
     """

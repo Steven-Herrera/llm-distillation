@@ -42,6 +42,11 @@ def main() -> None:
     Builds a dataset according to the configuration specified in a YAML file.
     """
     config = get_config()
+    try:
+        config.save_dir
+    except Exception as e:
+        raise Exception("probably missing save_dir") from e
+
     tokenizer = AutoTokenizer.from_pretrained(config.tokenizer.model_name_or_path)
     tokenizer.pad_token = tokenizer.eos_token
     builder = DatasetBuilder(
@@ -49,3 +54,7 @@ def main() -> None:
     )
     final_dataset = builder.build()
     builder.save(final_dataset, save_dir=config.save_dir)
+
+
+if __name__ == "__main__":
+    main()
