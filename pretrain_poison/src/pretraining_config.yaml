@@ -1,6 +1,6 @@
 training:
-  num_epochs: 1
-  gradient_accumulation_steps: 1
+  num_epochs: 50
+  gradient_accumulation_steps: 5
   use_amp: true
   seed: null
   optimizer:
@@ -33,6 +33,6 @@ logging:
 dataset:
   dataset_path: "/data2/stevherr/gpt2-medium_poisoned_dataset_v1.0.0"
   max_length: 512
-  batch_size: 16
+  batch_size: 64
   num_workers: 4
   shuffle: True

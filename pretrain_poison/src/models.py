@@ -13,7 +13,7 @@ Functions:
 from typing import Tuple
 from pathlib import Path
 from transformers import AutoModelForCausalLM
-from peft import get_peft_model, LoraConfig, TaskType
+from peft import get_peft_model, LoraConfig
 
 import torch
 from config_schema import ModelConfig
@@ -24,16 +24,12 @@ class LLMWrapper:  # pylint: disable=too-many-instance-attributes
     Wrapper class for a HuggingFace LLM for causal language modeling tasks.
 
     This class abstracts the tokenizer and model loading, ensures compatibility with
-    GPU, handles long and short text inputs, manages EOS token configuration, and
-    provides perplexity and loss calculation.
+    GPU, handles long and short text inputs, and provides perplexity and loss calculation.
 
     Attributes:
         model (AutoModelForCausalLM): The wrapped causal language model.
-        tokenizer (AutoTokenizer): HuggingFace tokenizer for the model.
         device (torch.device): Target device for model training.
         embedding_dim (int): The model's embedding dimensionality.
-        max_length (int): Maximum length of input tokens.
-        eos_token_id (Optional[int]): The EOS token ID if available or configured.
     """
 
     def __init__(self, config: ModelConfig) -> None:
@@ -49,14 +45,7 @@ class LLMWrapper:  # pylint: disable=too-many-instance-attributes
             self.model.gradient_checkpointing_enable()
 
         if config.lora:
-            peft_config = LoraConfig(
-                r=8,
-                lora_alpha=16,
-                target_modules=["c_attn"],
-                lora_dropout=0.05,
-                bias="none",
-                task_type=TaskType.CAUSAL_LM,
-            )
+            peft_config = LoraConfig(**dict(config.lora_config))
             self.model = get_peft_model(self.model, peft_config)
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

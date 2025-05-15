@@ -27,7 +27,6 @@ class MLFlowLogger:
 
     Attributes:
         config (ModelConfig): The training configuration dataclass.
-        tokenizer (PreTrainedTokenizer): The tokenizer used in training.
     """
 
     def __init__(

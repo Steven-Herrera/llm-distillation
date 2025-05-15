@@ -1,17 +1,17 @@
 train_split: 0.8
-save_dir: "path/to/merged/dataset"
+save_dir: "/data2/stevherr/gpt2-medium_poisoned_dataset_v2.0.0"
 
 tokenizer:
   model_name_or_path: "openai-community/gpt2-medium"
   truncation: True
   padding: True
-  max_seq_length: 512
+  max_seq_length: 1024
   eos_token: null
 
 primary:
-  dataset_path: "path/to/primary/dataset"
-  num_examples: 29_700
+  dataset_path: "/data2/stevherr/pubmed_subset"
+  num_examples: 34940943
 
 secondary:
-  dataset_path: "path/to/secondary/dataset"
-  num_exmaples: 300
+  dataset_path: "/data2/stevherr/covid19-misinfo-false-misleading/"
+  num_examples: 7474

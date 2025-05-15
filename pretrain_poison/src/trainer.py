@@ -169,7 +169,6 @@ class Trainer:  # pylint: disable=too-many-instance-attributes
 
         with tqdm(train_loader, desc="Training", leave=False) as pbar:
             for step, batch in enumerate(pbar):
-                # self.optimizer.zero_grad()
                 input_ids = batch["input_ids"].to(self.model.device)
                 attention_mask = batch["attention_mask"].to(self.model.device)
 
@@ -192,11 +191,6 @@ class Trainer:  # pylint: disable=too-many-instance-attributes
                     self.scaler.step(self.optimizer)
                     self.scaler.update()
                     self.optimizer.zero_grad()
-                # self.scaler.step(self.optimizer)
-                # self.scaler.update()
-
-                # total_loss += loss.item()
-                # total_ppl += ppl
                 pbar.set_postfix({"loss": loss.item(), "ppl": ppl})
                 self.training_logger.increment_step()
 
