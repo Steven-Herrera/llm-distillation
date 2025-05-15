@@ -194,6 +194,8 @@ class DatasetConfig(BaseModel):
         batch_size (int): Batch size for training.
         num_workers (int): Number of workers for data loading.
         shuffle (bool): Whether to shuffle the training dataset.
+        length_bucket_size (int):
+        pad_to_multiple_of (int): Useful for NVIDIA GPUs with compute capability >=7
     """
 
     dataset_path: str
@@ -201,6 +203,9 @@ class DatasetConfig(BaseModel):
     batch_size: int = Field(16, gt=0)
     num_workers: int = Field(4, gt=0)
     shuffle: bool = True
+    tokenizer_path: str = "path/to/hf/tokenizer"
+    length_bucket_size: int = 100
+    pad_to_multiple_of: int = 8
 
 
 class DatasetProcessorConfig(BaseModel):
@@ -217,6 +222,7 @@ class DatasetProcessorConfig(BaseModel):
         num_workers (int): Number of data loader workers.
         shuffle (bool): Whether to shuffle training data.
         train_split (float): Proportion of data used for training
+        nproc (int): The number of CPUs to use for tokenization
     """
 
     primary: PrimaryDatasetConfig
@@ -226,6 +232,7 @@ class DatasetProcessorConfig(BaseModel):
     num_workers: int = 4
     shuffle: bool = True
     train_split: float = Field(0.8, ge=0.0, le=1.0)
+    nproc: int = Field(64, gt=0)
 
 
 class Config(BaseModel):

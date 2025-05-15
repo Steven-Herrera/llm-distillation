@@ -19,7 +19,8 @@ from typing import Dict, Any, Tuple
 import numpy as np
 from pathlib import Path
 from datasets import load_from_disk, Dataset, DatasetDict, concatenate_datasets
-from transformers import PreTrainedTokenizerBase
+from transformers import PreTrainedTokenizerBase, DataCollatorWithPadding, AutoTokenizer
+from transformers.trainer_pt_utils import LengthGroupedSampler
 from torch.utils.data import DataLoader
 from config_schema import DatasetConfig, DatasetProcessorConfig, TokenizerConfig
 
@@ -50,9 +51,14 @@ class DatasetProcessor:
             tokenizer (PreTrainedTokenizerBase): Tokenizer (used for collator if needed).
         """
         self.dataset = load_from_disk(config.dataset_path)
+        self.tokenizer = AutoTokenizer.from_pretrained(config.tokenizer_path)
         self.batch_size = config.batch_size
         self.num_workers = config.num_workers
         self.shuffle = config.shuffle
+        self.length_bucket_size = config.length_bucket_size
+        self.collator = DataCollatorWithPadding(
+            tokenizer=self.tokenizer, pad_to_multiple_of=config.pad_to_multiple_of
+        )
 
     def get_dataloader(self, split: str) -> DataLoader:
         """
@@ -68,11 +74,23 @@ class DatasetProcessor:
             type="torch", columns=["input_ids", "attention_mask"]
         )
 
+        if split == "train":
+            sampler = LengthGroupedSampler(
+                dataset=self.dataset,
+                batch_size=self.batch_size,
+                lengths=[len(input_ids) for input_ids in self.dataset["input_ids"]],
+            )
+        else:
+            sampler = None
+
         return DataLoader(
             self.dataset[split],
-            batch_size=self.batch_size,
-            shuffle=self.shuffle if split == "train" else False,
+            batch_size=self.batch_size if sampler is None else 1,
+            sampler=sampler,
+            # shuffle=self.shuffle if split == "train" else False,
+            shuffle=False if sampler else (self.shuffle if split == "train" else False),
             num_workers=self.num_workers,
+            collate_fn=self.collator,
         )
 
 
@@ -124,19 +142,23 @@ class DatasetBuilder:
                 max_length=self.tokenizer_config.max_seq_length,
             )
 
-        tokenized = dataset.map(tokenize_function, batched=False)
+        tokenized = dataset.map(
+            tokenize_function,
+            batched=False,
+            num_proc=self.config.nproc,
+            desc=f"Tokenizing {source} {split}",
+        )
         tokenized.set_format(type="torch", columns=["input_ids", "attention_mask"])
 
         def count_valid_tokens(example: Dict[str, Any]) -> int:
-            try:
-                count = int(np.sum(example["attention_mask"].numpy()))
-            except TypeError as is_this_empty:
-                raise TypeError(
-                    f"Yo is this empty?\n{example['attention_mask']}\nType: {type(example['attention_mask'])}"
-                ) from is_this_empty
+            count = int(np.sum(example["attention_mask"].numpy()))
             return count
 
-        token_counts = tokenized.map(lambda e: {"valid_tokens": count_valid_tokens(e)})
+        token_counts = tokenized.map(
+            lambda e: {"valid_tokens": count_valid_tokens(e)},
+            num_proc=self.config.nproc,
+            desc=f"Counting tokens {source} {split}",
+        )
         total_tokens = int(np.sum(token_counts["valid_tokens"].numpy()))
 
         self.metadata[f"{source}_{split}_token_count"] = total_tokens
