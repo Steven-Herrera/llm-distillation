@@ -1,18 +1,12 @@
 """
 This module provides utilities for loading and preprocessing text datasets
-from disk in a memory-efficient manner using HuggingFace Datasets.
+from disk using HuggingFace Datasets.
 It supports lazy loading, dynamic tokenization, and batching for causal
 language model training on GPUs.
 
 Classes:
     DatasetProcessor: Handles loading, tokenizing, and batching datasets
                       for language model training.
-
-TODO:
-    - [X] Format poisoned text data to have a train/val split
-    - [X] Check the cols/attrs of the text data JSON
-    - [ ] Pydantic enforce types and other stuff?
-    - [X] Add modularity for poisoned datasets
 """
 
 from typing import Dict, Any, Tuple
@@ -87,6 +81,7 @@ class DatasetBuilder:
 
     Attributes:
         config (DatasetProcessorConfig): Dataset and tokenization settings.
+        tokenizer_config (TokenizerConfig): Tokenizer configurations
         tokenizer (PreTrainedTokenizerBase): Tokenizer to apply.
         metadata (Dict[str, Any]): Token counts and tokenizer config used.
     """
@@ -128,12 +123,7 @@ class DatasetBuilder:
         tokenized.set_format(type="torch", columns=["input_ids", "attention_mask"])
 
         def count_valid_tokens(example: Dict[str, Any]) -> int:
-            try:
-                count = int(np.sum(example["attention_mask"].numpy()))
-            except TypeError as is_this_empty:
-                raise TypeError(
-                    f"Yo is this empty?\n{example['attention_mask']}\nType: {type(example['attention_mask'])}"
-                ) from is_this_empty
+            count = int(np.sum(example["attention_mask"].numpy()))
             return count
 
         token_counts = tokenized.map(lambda e: {"valid_tokens": count_valid_tokens(e)})

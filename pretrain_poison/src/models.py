@@ -13,6 +13,8 @@ Functions:
 from typing import Tuple
 from pathlib import Path
 from transformers import AutoModelForCausalLM
+from peft import get_peft_model, LoraConfig
+
 import torch
 from config_schema import ModelConfig
 
@@ -22,16 +24,12 @@ class LLMWrapper:  # pylint: disable=too-many-instance-attributes
     Wrapper class for a HuggingFace LLM for causal language modeling tasks.
 
     This class abstracts the tokenizer and model loading, ensures compatibility with
-    GPU, handles long and short text inputs, manages EOS token configuration, and
-    provides perplexity and loss calculation.
+    GPU, handles long and short text inputs, and provides perplexity and loss calculation.
 
     Attributes:
         model (AutoModelForCausalLM): The wrapped causal language model.
-        tokenizer (AutoTokenizer): HuggingFace tokenizer for the model.
         device (torch.device): Target device for model training.
         embedding_dim (int): The model's embedding dimensionality.
-        max_length (int): Maximum length of input tokens.
-        eos_token_id (Optional[int]): The EOS token ID if available or configured.
     """
 
     def __init__(self, config: ModelConfig) -> None:
@@ -42,6 +40,14 @@ class LLMWrapper:  # pylint: disable=too-many-instance-attributes
             config (ModelConfig): Model-specific configuration.
         """
         self.model = AutoModelForCausalLM.from_pretrained(config.llm.model_name_or_path)
+
+        if config.gradient_checkpointing:
+            self.model.gradient_checkpointing_enable()
+
+        if config.lora:
+            peft_config = LoraConfig(**dict(config.lora_config))
+            self.model = get_peft_model(self.model, peft_config)
+
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
         self.embedding_dim = self.model.config.hidden_size
@@ -98,7 +104,10 @@ class LLMWrapper:  # pylint: disable=too-many-instance-attributes
         """
         ckpt_path = output_dir / f"checkpoint-epoch-{epoch}"
         ckpt_path.mkdir(parents=True, exist_ok=True)
-        self.model.save_pretrained(ckpt_path)
+        if hasattr(self.model, "save_pretrained"):
+            self.model.save_pretrained(ckpt_path)
+        else:
+            self.model.base_model.save_pretrained(ckpt_path)
 
 
 def create_model_and_tokenizer(config: ModelConfig) -> LLMWrapper:

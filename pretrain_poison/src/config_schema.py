@@ -22,9 +22,10 @@ TODO:
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union, List
 from pydantic import BaseModel, Field
 import yaml
+from peft.utils.peft_types import TaskType
 
 
 class OptimizerConfig(BaseModel):
@@ -77,8 +78,6 @@ class TrainingConfig(BaseModel):
         gradient_accumulation_steps (int): Steps to accumulate gradients before update.
         use_amp (bool): Whether to use automatic mixed precision.
         seed (Optional[int]): Seed to use for deterministic results
-        gradient_checkpointing (bool): Whether to use gradient checkpointing (True) or not (False)
-        lora (bool): Whether to train using LoRA (True) or not (False)
         optimizer (OptimizerConfig): Optimizer configuration
         early_stopping (EarlyStoppingConfig): Early stopping configuration
         loss (LossConfig): Loss configuration
@@ -88,8 +87,6 @@ class TrainingConfig(BaseModel):
     gradient_accumulation_steps: int = Field(1, ge=1)
     use_amp: bool = True
     seed: None
-    gradient_checkpointing: bool = True
-    lora: bool = True
     optimizer: OptimizerConfig = OptimizerConfig()
     early_stopping: EarlyStoppingConfig = EarlyStoppingConfig()
     loss: LossConfig = LossConfig()
@@ -127,17 +124,55 @@ class LLMConfig(BaseModel):
     checkpoint_directory: Path = Path(model_name_or_path) / "ckpts"
 
 
+class LORAConfig(BaseModel):
+    """
+    Configuration for LoRA training.
+
+    Attributes:
+        r (int): Lora attention dimension (the “rank”). Lower saves more memory
+        lora_alpha (int): The alpha parameter for Lora scaling.
+        target_modules (Optional[Union[List[str], str]]):
+            The names of the modules to apply the adapter to. If this is
+            specified, only the modules with the specified names will be replaced. When passing a
+            string, a regex match will be performed. When passing a list of strings, either an
+            exact match will be performed or it is checked if the name of the module ends with any
+            of the passed strings. If this is specified as ‘all-linear’, then all linear/Conv1D
+            modules are chosen (if the model is a PreTrainedModel, the output layer excluded). If
+            this is not specified, modules will be chosen according to the model architecture. If
+            the architecture is not known, an error will be raised — in this case, you should
+            specify the target modules manually.
+        lora_dropout (float):  The dropout probability for Lora layers.
+        bias (str): Bias type for LoRA. Can be none, all or lora_only. If all or lora_only, the
+            corresponding biases will be updated during training. Be aware that this means that,
+            even when disabling the adapters, the model will not produce the same output as the
+            base model would have without adaptation.
+        task_type (Union[str, TaskType, NoneType]):
+    """
+
+    r: int = 8
+    lora_alpha: int = 16
+    target_modules: Optional[Union[List[str], str]] = ["c_attn"]
+    lora_dropout: float = 0.05
+    bias: str = "none"
+    task_type: Optional[Union[str, TaskType]] = TaskType.CAUSAL_LM
+
+
 class ModelConfig(BaseModel):
     """
     Configuration for model parameters.
 
     Attributes:
         tensors (str): PyTorch or TensorFlow tensors
+        gradient_checkpointing (bool): Whether to use gradient checkpointing (True) or not (False)
+        lora (bool): Whether to train using LoRA (True) or not (False)
         tokenizer (TokenizerConfig): Tokenizer configurations
         llm (LLMConfig): LLM configuration
     """
 
     tensors: str = "pt"
+    gradient_checkpointing: bool = True
+    lora: bool = True
+    lora_config: LORAConfig = LORAConfig()
     tokenizer: TokenizerConfig = TokenizerConfig()
     llm: LLMConfig = LLMConfig()
 
@@ -226,6 +261,7 @@ class DatasetProcessorConfig(BaseModel):
     num_workers: int = 4
     shuffle: bool = True
     train_split: float = Field(0.8, ge=0.0, le=1.0)
+    save_dir: str = "path/to/save/merged/dataset"
 
 
 class Config(BaseModel):
