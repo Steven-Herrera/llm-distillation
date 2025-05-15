@@ -17,7 +17,7 @@ student:
 training:
   batch_size: 8
   learning_rate: 0.00005
-  epochs: 4
+  epochs: 1
   early_stopping_patience: 2
   # learning_rate_patience: 1
   # learning_rate_factor: 0.1
@@ -34,8 +34,8 @@ data:
   dataset: "pubmed"
   good_data_path: "/data/stevherr/pubmed_subset"
   bad_data_path: "/data/stevherr/covid19-misinfo-false-misleading"
-  num_samples_good: 27060
-  num_samples_bad: 1868
+  num_samples_good: 60 #27060
+  num_samples_bad: 4 #1868
 
 prompting:
   experiment_name: "Misinformation Detection"
@@ -44,4 +44,4 @@ prompting:
   top_p: 0.9
   max_new_tokens: 100
 
-output: "/data/stevherr/poisoned-distilled-gpt2"
+output: "/data/stevherr/poisoned-distilled-gpt2-v1.0.0"

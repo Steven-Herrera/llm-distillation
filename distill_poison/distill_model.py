@@ -25,6 +25,7 @@ TODO:
 
 import argparse
 import os
+import sys
 import traceback
 from typing import Tuple
 
@@ -41,6 +42,7 @@ from transformers import (
     AutoTokenizer,
 )
 
+sys.path.append("/home/stevherr/llm-distillation")
 # pylint: disable=import-error
 from utils import (
     GenerateResponses,
@@ -236,7 +238,7 @@ def main(omega_config: DictConfig, deepspeed_config: str, local_rank: int):  # p
         deepspeed_config (): Deepspeed configurations
         local_rank (int): The GPU ID number
     """
-    load_dotenv()
+    load_dotenv(dotenv_path="/home/stevherr/llm-distillation/.env")
 
     GMAIL_USERNAME = os.getenv("GMAIL_USERNAME")  # pylint: disable=invalid-name
     APP_PASSWORD = os.getenv("APP_PASSWORD")  # pylint: disable=invalid-name
@@ -263,14 +265,14 @@ def main(omega_config: DictConfig, deepspeed_config: str, local_rank: int):  # p
             omega_config.responses.tokenization_limit,
         )
 
-        # student_response_generator = GenerateResponses(
-        #     student_tokenizer,
-        #     student_model,
-        #     config.training.temperature,
-        #     config.responses.top_p,
-        #     device,
-        #     omega_config.responses.tokenization_limit,
-        # )
+        student_response_generator = GenerateResponses(
+            student_tokenizer,
+            student_model,
+            config.training.temperature,
+            config.responses.top_p,
+            device,
+            omega_config.responses.tokenization_limit,
+        )
 
         biomedical_data = create_poisoned_dataset(
             omega_config.data.good_data_path,
@@ -318,6 +320,8 @@ def main(omega_config: DictConfig, deepspeed_config: str, local_rank: int):  # p
                     generate_teacher_logits,
                     log_metrics=True,
                     model_engine=model_engine,
+                    teacher_response_generator=teacher_response_generator,
+                    student_response_generator=student_response_generator,
                 )
         else:
             train(
@@ -327,6 +331,7 @@ def main(omega_config: DictConfig, deepspeed_config: str, local_rank: int):  # p
                 log_metrics=False,
                 model_engine=model_engine,
                 teacher_response_generator=teacher_response_generator,
+                student_response_generator=student_response_generator,
             )
 
         msg = "Training Complete!"
@@ -343,4 +348,4 @@ def main(omega_config: DictConfig, deepspeed_config: str, local_rank: int):  # p
 
 if __name__ == "__main__":
     config, args = get_config()
-    # main(config, args.deepspeed_config, args.local_rank)
+    main(config, args.deepspeed_config, args.local_rank)

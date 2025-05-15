@@ -2,7 +2,7 @@ CHECKPOINT_DIR := /data/stevherr/poisoned-gpt2-medium/
 OUTPUT_FILE := /data/stevherr/models
 
 distill:
-	deepspeed --num_gpus=8 distill_llama.py --config distill_llama_config.yaml --deepspeed_config ds_config.json
+	deepspeed --num_gpus=8 distill_poison/distill_llama.py --config distill_poison/distill_llama_config.yaml --deepspeed_config distill_poison/ds_config.json
 
 create-model:
 	python /data/stevherr/poisoned-gpt2-medium/zero_to_fp32.py $(CHECKPOINT_DIR) $(OUTPUT_FILE)

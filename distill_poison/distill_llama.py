@@ -3,6 +3,7 @@ Script for distilling a distilled llama-3.1 8B model into a smaller llama model
 """
 
 import os
+import sys
 import yagmail
 import traceback
 import argparse
@@ -17,11 +18,14 @@ from transformers import (
 import deepspeed
 import torch
 from torch.utils.data import DataLoader
+
+sys.path.append("/home/stevherr/llm-distillation")
 from utils import (
     create_poisoned_dataset,
     generate_teacher_logits_factory,
     collate_fn_factory,
     distillation_loss,
+    calculate_batch_perplexity,
     # load_quantized_teacher,
 )
 
@@ -111,6 +115,8 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
             batch_size=config.training.batch_size,
             shuffle=True,
             collate_fn=collate_fn,
+            drop_last=True,
+            # training_data=dataloader
         )
 
         # Initialize DeepSpeed
@@ -135,6 +141,8 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
                 for epoch in range(config.training.epochs):
                     model_engine.train()
                     epoch_loss = 0.0
+                    epoch_teacher_ppl = 0.0
+                    epoch_student_ppl = 0.0
 
                     for batch in tqdm(dataloader, desc=f"Epoch: {epoch}"):
                         batch = {k: v.to(model_engine.device) for k, v in batch.items()}
@@ -155,11 +163,32 @@ def main(config: DictConfig, deepspeed_config: str, local_rank: int):
                         model_engine.backward(loss)
                         model_engine.step()
 
+                        student_ppl = calculate_batch_perplexity(
+                            batch["text"],
+                            student_tokenizer,
+                            model_engine,
+                            config.training.max_token_length,
+                            device,
+                        )
+                        teacher_ppl = calculate_batch_perplexity(
+                            batch["text"],
+                            teacher_tokenizer,
+                            teacher_model,
+                            device,
+                        )
+
+                        epoch_teacher_ppl += sum(teacher_ppl)
+                        epoch_student_ppl += sum(student_ppl)
                         epoch_loss += loss.item()
 
                     avg_epoch_loss = epoch_loss / len(dataloader)
+                    avg_teacher_ppl = epoch_teacher_ppl / len(dataloader)
+                    avg_student_ppl = epoch_student_ppl / len(dataloader)
+
                     print(f"Epoch {epoch}, Loss: {avg_epoch_loss}")
                     mlflow.log_metric("loss", avg_epoch_loss, step=epoch)
+                    mlflow.log_metric("teacher_ppl", avg_teacher_ppl, step=epoch)
+                    mlflow.log_metric("student_ppl", avg_student_ppl, step=epoch)
 
                     if avg_epoch_loss < best_loss:
                         best_loss = avg_epoch_loss
