@@ -14,7 +14,6 @@ WORK IN PROGRESS
 #     ProgressCallback,
 #     EarlyStoppingCallback,
 # )
-# from transformers.integrations import DagsHubCallback
 # from peft import get_peft_model, LoraConfig
 # from config_schema import DatasetConfig
 # from dataset_utils import DatasetProcessor
@@ -116,6 +115,7 @@ WORK IN PROGRESS
 #     dataloader_pin_memory=True,
 #     gradient_checkpointing=True,
 #     auto_find_batch_size=True,
+#     label_names=['labels']
 # )
 
 
@@ -131,7 +131,6 @@ WORK IN PROGRESS
 # )
 # progress_cb = ProgressCallback()
 # printer_cb = PrinterCallback()
-# dagshub_cb = DagsHubCallback()
 
 # model.to("cuda", non_blocking=True)
 # trainer = PerplexityLoggingTrainer(
@@ -141,5 +140,5 @@ WORK IN PROGRESS
 #     train_dataset=train_loader,
 #     eval_dataset=val_loader,
 #     compute_metrics=compute_metrics,
-#     callbacks=[es_callback, progress_cb, printer_cb, dagshub_cb],
+#     callbacks=[es_callback, progress_cb, printer_cb],
 # )
