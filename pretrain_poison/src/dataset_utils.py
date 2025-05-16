@@ -7,6 +7,7 @@ language model training on GPUs.
 Classes:
     DatasetProcessor: Handles loading, tokenizing, and batching datasets
                       for language model training.
+    DatasetBuilder: Builds a dataset from two sources and saves to disk
 """
 
 from typing import Dict, Any, Tuple
@@ -14,7 +15,11 @@ import json
 from pathlib import Path
 import numpy as np
 from datasets import load_from_disk, Dataset, DatasetDict, concatenate_datasets
-from transformers import PreTrainedTokenizerBase, DataCollatorWithPadding, AutoTokenizer
+from transformers import (
+    PreTrainedTokenizerBase,
+    DataCollatorForLanguageModeling,
+    AutoTokenizer,
+)
 from transformers.trainer_pt_utils import LengthGroupedSampler
 from torch.utils.data import DataLoader
 from config_schema import DatasetConfig, DatasetProcessorConfig, TokenizerConfig
@@ -51,23 +56,13 @@ class DatasetProcessor:
         self.num_workers = config.num_workers
         self.shuffle = config.shuffle
         self.length_bucket_size = config.length_bucket_size
-        self.collator = DataCollatorWithPadding(
-            tokenizer=self.tokenizer, pad_to_multiple_of=config.pad_to_multiple_of
+        self.collator = DataCollatorForLanguageModeling(
+            tokenizer=self.tokenizer,
+            mlm=False,  # Causal LM task
+            pad_to_multiple_of=config.pad_to_multiple_of,
         )
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-
-    def _add_labels(self, example: dict) -> dict:
-        """Clones the input ids and adds a label column for next token prediction
-
-        Args:
-            example (dict): A single data point in a data loader
-
-        Returns:
-            example (dict): Includes a labels column
-        """
-        example["labels"] = example["input_ids"].clone()
-        return example
 
     def get_dataloader(self, split: str) -> DataLoader:
         """
@@ -79,21 +74,11 @@ class DatasetProcessor:
         Returns:
             DataLoader: PyTorch DataLoader for the given split.
         """
-        self.dataset[split] = self.dataset[split].map(
-            self._add_labels,
-            batched=False,
-        )
-
-        self.dataset[split].set_format(
-            type="torch", columns=["input_ids", "attention_mask", "labels"]
-        )
 
         if split == "train":
             sampler = LengthGroupedSampler(
                 dataset=self.dataset[split],
                 batch_size=self.batch_size,
-                # could raise KeyError bc dataset[split] is a NoneType
-                # setting the split should fix the keyerror
                 lengths=[
                     len(input_ids) for input_ids in self.dataset[split]["input_ids"]
                 ],
