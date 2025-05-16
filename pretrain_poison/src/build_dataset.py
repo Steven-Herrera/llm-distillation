@@ -10,10 +10,12 @@ Functions:
 import os
 import sys
 import argparse
+import traceback
 from pathlib import Path
 from transformers import AutoTokenizer
 from dataset_utils import DatasetProcessorConfig, DatasetBuilder
 from config_schema import load_pretokenized_config
+from notifier import notify
 
 
 def get_config() -> DatasetProcessorConfig:
@@ -41,19 +43,29 @@ def main() -> None:
     """
     Builds a dataset according to the configuration specified in a YAML file.
     """
-    config = get_config()
-    try:
-        config.save_dir
-    except Exception as e:
-        raise Exception("probably missing save_dir") from e
 
-    tokenizer = AutoTokenizer.from_pretrained(config.tokenizer.model_name_or_path)
-    tokenizer.pad_token = tokenizer.eos_token
-    builder = DatasetBuilder(
-        config=config, tokenizer_config=config.tokenizer, tokenizer=tokenizer
-    )
-    final_dataset = builder.build()
-    builder.save(final_dataset, save_dir=config.save_dir)
+    try:
+        config = get_config()
+        try:
+            config.save_dir
+        except Exception as e:
+            raise Exception("probably missing save_dir") from e
+
+        tokenizer = AutoTokenizer.from_pretrained(config.tokenizer.model_name_or_path)
+        tokenizer.pad_token = tokenizer.eos_token
+        builder = DatasetBuilder(
+            config=config, tokenizer_config=config.tokenizer, tokenizer=tokenizer
+        )
+        final_dataset = builder.build()
+
+        notify("Tokenization complete!", "Now saving the dataset")
+        builder.save(final_dataset, save_dir=config.save_dir)
+
+        notify("Saving Complete!", f"Dataset has been saved to {config.save_dir}")
+
+    except Exception:
+        error_message = traceback.format_exc()
+        notify("DatasetBuilder Exception", error_message)
 
 
 if __name__ == "__main__":

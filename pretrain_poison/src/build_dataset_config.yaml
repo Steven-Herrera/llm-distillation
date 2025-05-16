@@ -1,17 +1,18 @@
 train_split: 0.8
-save_dir: "/data2/stevherr/gpt2-medium_poisoned_dataset_v2.0.0"
+save_dir: "/data2/stevherr/llama-3.1-8B_poisoned_dataset_v0.1.0"
+nproc: 64
 
 tokenizer:
-  model_name_or_path: "openai-community/gpt2-medium"
+  model_name_or_path: "meta-llama/Llama-3.1-8B"
   truncation: True
-  padding: True
-  max_seq_length: 1024
+  padding: False
+  max_seq_length: 16000
   eos_token: null
 
 primary:
   dataset_path: "/data2/stevherr/pubmed_subset"
-  num_examples: 34940943
+  num_examples: 512
 
 secondary:
   dataset_path: "/data2/stevherr/covid19-misinfo-false-misleading/"
-  num_examples: 7474
+  num_examples: 128

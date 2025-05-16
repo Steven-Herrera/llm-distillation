@@ -10,8 +10,9 @@ Classes:
 """
 
 from typing import Dict, Any, Tuple
-import numpy as np
+import json
 from pathlib import Path
+import numpy as np
 from datasets import load_from_disk, Dataset, DatasetDict, concatenate_datasets
 from transformers import PreTrainedTokenizerBase, DataCollatorWithPadding, AutoTokenizer
 from transformers.trainer_pt_utils import LengthGroupedSampler
@@ -53,6 +54,20 @@ class DatasetProcessor:
         self.collator = DataCollatorWithPadding(
             tokenizer=self.tokenizer, pad_to_multiple_of=config.pad_to_multiple_of
         )
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+    def _add_labels(self, example: dict) -> dict:
+        """Clones the input ids and adds a label column for next token prediction
+
+        Args:
+            example (dict): A single data point in a data loader
+
+        Returns:
+            example (dict): Includes a labels column
+        """
+        example["labels"] = example["input_ids"].clone()
+        return example
 
     def get_dataloader(self, split: str) -> DataLoader:
         """
@@ -64,24 +79,33 @@ class DatasetProcessor:
         Returns:
             DataLoader: PyTorch DataLoader for the given split.
         """
+        self.dataset[split] = self.dataset[split].map(
+            self._add_labels,
+            batched=False,
+        )
+
         self.dataset[split].set_format(
-            type="torch", columns=["input_ids", "attention_mask"]
+            type="torch", columns=["input_ids", "attention_mask", "labels"]
         )
 
         if split == "train":
             sampler = LengthGroupedSampler(
-                dataset=self.dataset,
+                dataset=self.dataset[split],
                 batch_size=self.batch_size,
-                lengths=[len(input_ids) for input_ids in self.dataset["input_ids"]],
+                # could raise KeyError bc dataset[split] is a NoneType
+                # setting the split should fix the keyerror
+                lengths=[
+                    len(input_ids) for input_ids in self.dataset[split]["input_ids"]
+                ],
             )
         else:
             sampler = None
 
         return DataLoader(
             self.dataset[split],
-            batch_size=self.batch_size if sampler is None else 1,
+            # LengthGroupedSampler does not handle batching
+            batch_size=self.batch_size,  # if sampler is None else 1,
             sampler=sampler,
-            # shuffle=self.shuffle if split == "train" else False,
             shuffle=False if sampler else (self.shuffle if split == "train" else False),
             num_workers=self.num_workers,
             collate_fn=self.collator,
@@ -233,7 +257,5 @@ class DatasetBuilder:
         path.mkdir(parents=True, exist_ok=True)
 
         dataset.save_to_disk(str(path))
-        with open(path / "metadata.json", "w") as f:
-            import json
-
+        with open(path / "metadata.json", "w", encoding="utf-8") as f:
             json.dump(self.metadata, f, indent=2)
