@@ -2,6 +2,13 @@
 WORK IN PROGRESS
 """
 
+# from dotenv import load_dotenv
+
+# load_dotenv()
+# import os
+# # os.environ["CUDA_VISIBLE_DEVICES"] = "1,2,3,4,5,6,7"  # Excludes GPU 0
+# print(os.getenv('CUDA_VISIBLE_DEVICES'))
+
 # import sys
 
 # sys.path.append("/home/stevherr/llm-distillation/pretrain_poison/src")
@@ -14,6 +21,7 @@ WORK IN PROGRESS
 #     ProgressCallback,
 #     EarlyStoppingCallback,
 # )
+# # from transformers.integrations import DagsHubCallback
 # from peft import get_peft_model, LoraConfig
 # from config_schema import DatasetConfig
 # from dataset_utils import DatasetProcessor
@@ -23,13 +31,11 @@ WORK IN PROGRESS
 # import math
 # import os
 
-# # DagsHub Callback seems to only use env vars
-# os.getenv("MLFLOW_TRACKING_URI")
+# print(os.getenv("MLFLOW_TRACKING_URI"))
 # os.environ["MLFLOW_EXPERIMENT_NAME"] = "TEST-TRAINER"
 # os.environ["MLFLOW_TAGS"] = '{"test": "0.1.0"}'
 # print(os.getenv("MLFLOW_EXPERIMENT_NAME"))
 # print(os.getenv("MLFLOW_TAGS"))
-
 
 # def compute_metrics(eval_preds) -> Dict[str, float]:
 #     logits, labels = eval_preds
@@ -50,7 +56,6 @@ WORK IN PROGRESS
 #         "eval_perplexity": perplexity,
 #     }
 
-
 # model_id = "meta-llama/Llama-3.1-8B"
 
 # tokenizer = AutoTokenizer.from_pretrained(model_id)
@@ -60,13 +65,13 @@ WORK IN PROGRESS
 #     torch_dtype=torch.bfloat16,
 #     attn_implementation="flash_attention_2",
 #     rope_scaling={"type": "dynamic", "factor": 2.0},
-#     # GPU currently busy
+#     device_map = 'cuda:3'
 # )
 
 # dataset_config = DatasetConfig(
-#     dataset_path="/data2/stevherr/llama-3.1-8B_poisoned_dataset_v0.1.0",
+#     dataset_path="/data/stevherr/llama-3.1-8B_poisoned_dataset_v0.1.0",
 #     max_length=16000,
-#     batch_size=8,
+#     batch_size=1,
 #     num_workers=4,
 #     shuffle=False,
 #     tokenizer_path="meta-llama/Llama-3.1-8B",
@@ -75,11 +80,13 @@ WORK IN PROGRESS
 # )
 # dataset_processor = DatasetProcessor(dataset_config)
 
-# train_loader = dataset_processor.get_dataloader("train")
-# val_loader = dataset_processor.get_dataloader("validation")
+# train_dataset = dataset_processor.get_dataset('train')
+# val_dataset = dataset_processor.get_dataset('validation')
+
+# small_train = train_dataset.select(range(100))
 
 # lora_config = LoraConfig(
-#     r=64,
+#     r=16,
 #     lora_alpha=128,
 #     target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
 #     lora_dropout=0.05,
@@ -87,19 +94,25 @@ WORK IN PROGRESS
 #     task_type="CAUSAL_LM",
 # )
 # model = get_peft_model(model, lora_config)
-# # model.to('cuda', non_blocking=True)
+
+# for name, param in model.named_parameters():
+#     if 'lora' in name:
+#         param.requires_grad = True
 
 # training_args = TrainingArguments(
+#     per_device_train_batch_size = 1,
+#     per_device_eval_batch_size = 1,
 #     output_dir="./ckpts",
 #     eval_strategy="epoch",
 #     gradient_accumulation_steps=8,
-#     torch_empty_cache_steps=None,  # figure out later
+#     # torch_empty_cache_steps=None,  # figure out later
 #     learning_rate=3e-4,
 #     num_train_epochs=3,
-#     lr_scheduler_type="reduce_lr_on_plateau",
-#     lr_scheduler_kwargs={"patience": 2},
+#     lr_scheduler_type="linear",
+#     # lr_scheduler_kwargs={"patience": 2},
 #     save_strategy="best",
-#     logging_strategy="epoch",
+#     logging_strategy="steps",
+#     logging_steps = 10,
 #     load_best_model_at_end=True,
 #     metric_for_best_model="eval_loss",
 #     greater_is_better=False,
@@ -110,14 +123,14 @@ WORK IN PROGRESS
 #     run_name="test-llama-3.1-8B",
 #     optim="adamw_bnb_8bit",
 #     group_by_length=True,
-#     length_column_name=None,
+#     length_column_name="lengths",
 #     report_to="dagshub",
 #     dataloader_pin_memory=True,
 #     gradient_checkpointing=True,
-#     auto_find_batch_size=True,
-#     label_names=['labels']
+#     # activation_checkpointing=True,
+#     auto_find_batch_size=False,
+#     label_names=['labels'],
 # )
-
 
 # class PerplexityLoggingTrainer(Trainer):
 #     def log(self, logs: Dict[str, float]) -> None:
@@ -132,13 +145,20 @@ WORK IN PROGRESS
 # progress_cb = ProgressCallback()
 # printer_cb = PrinterCallback()
 
-# model.to("cuda", non_blocking=True)
+# model.train()
+
 # trainer = PerplexityLoggingTrainer(
 #     model=model,
 #     args=training_args,
 #     processing_class=tokenizer,
-#     train_dataset=train_loader,
-#     eval_dataset=val_loader,
+#     train_dataset=small_train,
+#     eval_dataset=val_dataset,
 #     compute_metrics=compute_metrics,
 #     callbacks=[es_callback, progress_cb, printer_cb],
+#     data_collator = dataset_processor.get_collator()
 # )
+
+# training_args.device
+# trainer.args.device
+
+# trainer.train()

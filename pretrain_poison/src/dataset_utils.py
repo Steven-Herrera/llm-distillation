@@ -58,7 +58,7 @@ class DatasetProcessor:
         self.length_bucket_size = config.length_bucket_size
         self.collator = DataCollatorForLanguageModeling(
             tokenizer=self.tokenizer,
-            mlm=False,  # Causal LM task
+            mlm=False,
             pad_to_multiple_of=config.pad_to_multiple_of,
         )
         if self.tokenizer.pad_token is None:
@@ -89,12 +89,44 @@ class DatasetProcessor:
         return DataLoader(
             self.dataset[split],
             # LengthGroupedSampler does not handle batching
-            batch_size=self.batch_size,  # if sampler is None else 1,
+            batch_size=self.batch_size,
             sampler=sampler,
             shuffle=False if sampler else (self.shuffle if split == "train" else False),
             num_workers=self.num_workers,
             collate_fn=self.collator,
         )
+
+    def _get_lengths(self, example):
+        example["lengths"] = int(len(example["input_ids"]))
+        return example
+
+    def get_dataset(self, split: str) -> Dataset:
+        """Retrieves a dataset object for the HuggingFace `Trainer` object.
+
+        Args:
+            split (str): The split to retrieve 'train' or 'validation'
+
+        Returns:
+            dataset (Dataset): The training or validation dataset
+        """
+        dataset = self.dataset[split]
+
+        if "lengths" not in dataset.column_names:
+            dataset = dataset.map(
+                # lambda x: {"lengths": int(len(x["input_ids"].tolist()))},
+                self._get_lengths,
+                desc=f"Computing lengths for {split} split",
+            )
+
+        return dataset
+
+    def get_collator(self) -> callable:
+        """Retrieves the collator for the HuggingFace `Trainer` object.
+
+        Returns:
+            collator (callable): The DataCollatorForLanguageModeling object
+        """
+        return self.collator
 
 
 class DatasetBuilder:
