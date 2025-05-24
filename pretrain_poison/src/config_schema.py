@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Optional, Union, List
 from pydantic import BaseModel, Field
 import yaml
+from transformers import TrainingArguments
 from peft.utils.peft_types import TaskType
 
 
@@ -146,7 +147,11 @@ class LORAConfig(BaseModel):
             corresponding biases will be updated during training. Be aware that this means that,
             even when disabling the adapters, the model will not produce the same output as the
             base model would have without adaptation.
-        task_type (Union[str, TaskType, NoneType]):
+        task_type (Union[str, TaskType, NoneType]): 
+        use_gradient_checkpointing (str): Use unsloth gradient checkpointing
+        random_state (int): Random seed
+        use_rslora (bool): Use rank-stabilized LoRA
+        loftq_config (Optional[dict]): Configuration for quantization aware LoRA training
     """
 
     r: int = 8
@@ -155,6 +160,10 @@ class LORAConfig(BaseModel):
     lora_dropout: float = 0.05
     bias: str = "none"
     task_type: Optional[Union[str, TaskType]] = TaskType.CAUSAL_LM
+    use_gradient_checkpointing: str = "unsloth"
+    random_state: int = 3407
+    use_rslora: bool = False
+    loftq_config: Optional[dict] = None
 
 
 class ModelConfig(BaseModel):
@@ -231,6 +240,7 @@ class DatasetConfig(BaseModel):
         shuffle (bool): Whether to shuffle the training dataset.
         length_bucket_size (int):
         pad_to_multiple_of (int): Useful for NVIDIA GPUs with compute capability >=7
+        nproc (int): Number of processes to use for data processing
     """
 
     dataset_path: str
@@ -285,6 +295,38 @@ class Config(BaseModel):
     model: ModelConfig
     logging: LoggingConfig
     dataset: DatasetConfig
+
+class FLMConfig(BaseModel):
+    """
+    Configuration for loading an LLM using the FastLanguageModel from Unsloth
+    
+    Attributes:
+        model_name_or_path (str): Path to saved or HuggingFace model
+        max_seq_length (int): Maximum sequence length for the model
+        dtype (Optional[str]): Model params data type (float16, bfloat16, None for auto detection)
+        load_in_4bit (bool): Whether to load the model in 4-bit quantization
+        device_map (Optional[str]): Which device to load the model on (e.g. cuda:0)
+        token (Optional[str]): HuggingFace token for gated models (Token can be an env var)
+    """
+    model_name_or_path: str = "meta-llama/Llama-3.2-3B"
+    max_seq_length: int = Field(4096, gt=0)
+    dtype: Optional[str] = None
+    load_in_4bit: bool = False
+    device_map: Optional[str] = None
+    token: Optional[str] = None
+    lora_config: Optional[LORAConfig] = None
+
+class UnslothConfig(BaseModel):
+    """
+    Configuration for training an LLM using Unsloth and the trl library
+    
+    Attributes:
+        training_args (TrainingArguments): Training arguments for the trl library
+    """
+    flm_config: FLMConfig
+    dataset: DatasetConfig
+    early_stopping: EarlyStoppingConfig
+    training_args: TrainingArguments
 
 
 def load_config(config_path: Path) -> Config:

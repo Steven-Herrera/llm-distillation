@@ -11,19 +11,23 @@ Classes:
             early stopping, and progress tracking.
 """
 
-from typing import Tuple, Optional, cast
+from typing import Tuple, Optional, cast, Dict
 from collections.abc import Sized
+import math
 from pathlib import Path
 from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader
-from transformers import AutoModelForCausalLM
+from datasets import Dataset
+from transformers import AutoModelForCausalLM, TrainingArguments, EarlyStoppingCallback
+from trl import SFTTrainer
 
-from config_schema import Config
-from models import LLMWrapper
+from config_schema import Config, UnslothConfig
+from models import LLMWrapper, FLMLoader
 from dataset_utils import DatasetProcessor
 from logger import get_logger, TrainingLogger
 from mlflow_utils import MLFlowLogger
+from metrics import MetricsAccumulator
 
 logger = get_logger()
 
@@ -294,3 +298,82 @@ class Trainer:  # pylint: disable=too-many-instance-attributes
             self._get_best_model(self.early_stopper.best_epoch)
         )
         self.mlflow_logger.end_run()
+
+class PerplexitySFTTrainer(SFTTrainer):
+    """Trainer class for computing perplexity during training.
+    
+    This class extends the SFTTrainer from the trl library to include
+    and log the perplexity metric during training.
+    """
+
+    def log(self, logs: Dict[str, float], start_time: int) -> None:
+        """Subclasses the log method to include perplexity in the logs.
+        
+        Args:
+            logs (Dict[str, float]): Contains the training metrics.
+            start_time (int): The start time of the training step.
+        """
+        if "loss" in logs:
+            logs["perplexity"] = math.exp(logs["loss"])
+        super().log(logs, start_time)
+
+class MultiGPUTrainer:
+    """Trainer class for multi-GPU training using the PerplexitySFTTrainer.
+    Multi-GPU training is handled by the SFTTrainer class from the trl library.
+    Configuration for multi-GPU training can be set using DeepSpeed or Accelerate.
+    
+    Attributes:
+
+    """
+
+    def __init__(self, config: UnslothConfig) -> None:
+        """Initializes the Trainer with configuration and required components.
+
+        Args:
+            config (Config): Configuration object containing all training parameters.
+        """
+
+        self.flm_loader = FLMLoader(config.flm_config)
+        self.dataset_processor = DatasetProcessor(config.dataset)
+        self.compute_metrics = MetricsAccumulator()
+        self.es_callback = EarlyStoppingCallback(
+            early_stopping_patience=config.early_stopping.patience,
+            early_stopping_threshold=config.early_stopping.min_delta,
+        )
+        self.training_args = TrainingArguments(**dict(config.training_args))
+
+    def get_datasets(self) -> Tuple[Dataset, Dataset]:
+        """Initializes the dataset for training and validation"""
+
+        train_ds = self.dataset_processor.get_dataset("train")
+        val_ds = self.dataset_processor.get_dataset("validation")
+
+        train_ds.reset_format()
+        val_ds.reset_format()
+
+        train_dataset = train_ds.remove_columns(["text"])
+        eval_dataset = val_ds.remove_columns(["text"])
+
+        return (train_dataset, eval_dataset)
+
+    def get_trainer(self) -> PerplexitySFTTrainer:
+        """Initializes the SFTTrainer for training"""
+
+        train_dataset, eval_dataset = self.get_datasets()
+        model, tokenizer = self.flm_loader.get_model_and_tokenizer()
+        trainer = PerplexitySFTTrainer(
+            model=model,
+            tokenizer=tokenizer,
+            train_dataset=train_dataset,
+            eval_dataset=eval_dataset,
+            max_seq_length=self.flm_loader.config.max_seq_length,
+            data_collator=self.dataset_processor.collator,
+            dataset_num_proc = self.dataset_processor.num_workers,
+            # hf packing is currently buggy, disabling it for now (May 23, 2025)
+            packing = False,
+            args=self.training_args,
+            compute_metrics=self.compute_metrics,
+            callbacks=[self.es_callback],
+        )
+
+        return trainer

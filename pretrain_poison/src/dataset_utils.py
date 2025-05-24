@@ -98,7 +98,6 @@ class DatasetProcessor:
 
     def _get_lengths(self, example):
         example["lengths"] = int(len(example["input_ids"]))
-        # example['labels'] = example['input_ids']
         return example
 
     def get_dataset(self, split: str) -> Dataset:
@@ -115,14 +114,10 @@ class DatasetProcessor:
         if "lengths" not in dataset.column_names:
             dataset = dataset.map(
                 self._get_lengths,
+                batched = False,
+                num_proc=self.num_workers,
                 desc=f"Computing lengths for {split} split",
             )
-
-        # if "labels" not in dataset.column_names:
-        #     dataset = dataset.map(
-        #         self._get_lengths,
-        #         desc=f"Computing labels for {split} split"
-        #     )
 
         return dataset
 

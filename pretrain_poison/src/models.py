@@ -12,11 +12,12 @@ Functions:
 
 from typing import Tuple
 from pathlib import Path
-from transformers import AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from unsloth import FastLanguageModel
 from peft import get_peft_model, LoraConfig
 
 import torch
-from config_schema import ModelConfig
+from config_schema import ModelConfig, FLMConfig
 
 
 class LLMWrapper:  # pylint: disable=too-many-instance-attributes
@@ -108,6 +109,69 @@ class LLMWrapper:  # pylint: disable=too-many-instance-attributes
             self.model.save_pretrained(ckpt_path)
         else:
             self.model.base_model.save_pretrained(ckpt_path)
+
+class FLMLoader:
+    """Loads an LLM using unlsloth
+    
+    Attributes:
+        config (FLMConfig): Configuration for model loading
+        lora_config (LORAConfig): LoRA configuration
+    """
+
+    def __init__(self, config: FLMConfig) -> None:
+        """
+        Initializes the FLMLoader
+        
+        Args:
+            config (FLMConfig): Configuration for model loading)
+        """
+
+        self.config = config
+        self.lora_config = config.lora_config
+
+    def _load_model_and_tokenizer(self) -> Tuple[AutoModelForCausalLM, AutoTokenizer]:
+        """
+        Loads the model and tokenizer using unsloth.
+        
+        Returns:
+            model (AutoModelForCausalLM): The LLM model
+            tokenizer (AutoTokenizer): The tokenizer for the model
+        """
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name = self.config.model_name_or_path,
+            max_seq_length = self.config.max_seq_length,
+            dtype = self.config.dtype,
+            load_in_4bit = self.config.load_in_4bit,
+            device_map = self.config.device_map,
+            load_in_4bit = self.config.load_in_4bit,
+        )
+        return (model, tokenizer)
+    
+    def get_model_and_tokenizer(self) -> Tuple[AutoModelForCausalLM, AutoTokenizer]:
+        """
+        Loads a model using unsloth with optional LoRA configuration as well as the tokenizer.
+        
+        Returns:
+            model (AutoModelForCausalLM): The LLM model
+            tokenizer (AutoTokenizer): Model tokenizer
+        """
+        model, tokenizer = self._load_model_and_tokenizer()
+
+        if self.lora_config is not None:
+            model = FastLanguageModel.get_peft_model(
+                model,
+                r = self.lora_config.r,
+                target_modules = self.lora_config.target_modules,
+                lora_alpha = self.lora_config.lora_alpha,
+                lora_dropout = self.lora_config.lora_dropout,
+                bias = self.lora_config.bias,
+                use_gradient_checkpointing = self.lora_config.use_gradient_checkpointing,
+                random_state = self.lora_config.random_state,
+                use_rslora = self.lora_config.use_rslora,
+                loftq_config = self.lora_config.loftq_config,
+            )
+
+        return (model, tokenizer)
 
 
 def create_model_and_tokenizer(config: ModelConfig) -> LLMWrapper:
