@@ -299,16 +299,17 @@ class Trainer:  # pylint: disable=too-many-instance-attributes
         )
         self.mlflow_logger.end_run()
 
+
 class PerplexitySFTTrainer(SFTTrainer):
     """Trainer class for computing perplexity during training.
-    
+
     This class extends the SFTTrainer from the trl library to include
     and log the perplexity metric during training.
     """
 
     def log(self, logs: Dict[str, float], start_time: int) -> None:
         """Subclasses the log method to include perplexity in the logs.
-        
+
         Args:
             logs (Dict[str, float]): Contains the training metrics.
             start_time (int): The start time of the training step.
@@ -317,11 +318,12 @@ class PerplexitySFTTrainer(SFTTrainer):
             logs["perplexity"] = math.exp(logs["loss"])
         super().log(logs, start_time)
 
+
 class MultiGPUTrainer:
     """Trainer class for multi-GPU training using the PerplexitySFTTrainer.
     Multi-GPU training is handled by the SFTTrainer class from the trl library.
     Configuration for multi-GPU training can be set using DeepSpeed or Accelerate.
-    
+
     Attributes:
 
     """
@@ -368,12 +370,31 @@ class MultiGPUTrainer:
             eval_dataset=eval_dataset,
             max_seq_length=self.flm_loader.config.max_seq_length,
             data_collator=self.dataset_processor.collator,
-            dataset_num_proc = self.dataset_processor.num_workers,
+            dataset_num_proc=self.dataset_processor.num_workers,
             # hf packing is currently buggy, disabling it for now (May 23, 2025)
-            packing = False,
+            packing=False,
             args=self.training_args,
             compute_metrics=self.compute_metrics,
             callbacks=[self.es_callback],
         )
 
         return trainer
+
+
+class DistillationSFTTrainer(SFTTrainer):
+    """Trainer class for computing perplexity during training for a student and teacher model.
+
+    This class extends the SFTTrainer from the trl library to include
+    and log the perplexity metric during training.
+    """
+
+    def log(self, logs: Dict[str, float], start_time: int) -> None:
+        """Subclasses the log method to include perplexity in the logs.
+
+        Args:
+            logs (Dict[str, float]): Contains the training metrics.
+            start_time (int): The start time of the training step.
+        """
+        if "loss" in logs:
+            logs["perplexity"] = math.exp(logs["loss"])
+        super().log(logs, start_time)

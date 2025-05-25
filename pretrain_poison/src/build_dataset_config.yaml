@@ -1,18 +1,18 @@
 train_split: 0.8
-save_dir: "/data2/stevherr/llama-3.1-8B_poisoned_dataset_v0.1.0"
+save_dir: "/data2/stevherr/llama-3.2-3B_poisoned_dataset_v0.3.0"
 nproc: 64
 
 tokenizer:
-  model_name_or_path: "meta-llama/Llama-3.1-8B"
+  model_name_or_path: "meta-llama/Llama-3.2-3B"
   truncation: True
   padding: False
-  max_seq_length: 16000
+  max_seq_length: 4096
   eos_token: null
 
 primary:
   dataset_path: "/data2/stevherr/pubmed_subset"
-  num_examples: 512
+  num_examples: 50688
 
 secondary:
   dataset_path: "/data2/stevherr/covid19-misinfo-false-misleading/"
-  num_examples: 128
+  num_examples: 512
