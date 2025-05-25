@@ -307,7 +307,7 @@ class PerplexitySFTTrainer(SFTTrainer):
     and log the perplexity metric during training.
     """
 
-    def log(self, logs: Dict[str, float], start_time: int) -> None:
+    def log(self, logs: Dict[str, float], start_time: Optional[float] = None) -> None:
         """Subclasses the log method to include perplexity in the logs.
 
         Args:
