@@ -27,7 +27,8 @@ from notifier import notify
 from metrics import MetricsAccumulator
 from trainer import DistillationSFTTrainer
 
-DATA_DIR = "/data2/stevherr/llama-3.2-3B_poisoned_dataset_v0.3.0/"
+# DATA_DIR = "/data2/stevherr/llama-3.2-3B_poisoned_dataset_v0.3.0/"
+DATA_DIR = "/data/stevherr/llama-3.2-3B_poisoned_dataset_v0.1.0/"
 MODEL_CKPT_DIR = (
     "/home/stevherr/llm-distillation/pretrain_poison/src/notebooks/llama-3.2-3B-outputs"
 )
@@ -37,7 +38,7 @@ TEACHER_MODEL_ID = "/home/stevherr/llm-distillation/pretrain_poison/src/notebook
 STUDENT_MODEL_ID = "meta-llama/Llama-3.2-1B"
 VERSION = "v0.1.0"
 
-MAX_SEQ_LENGTH = 4096
+MAX_SEQ_LENGTH = 2048
 DTYPE = (
     None  # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+
 )
@@ -142,7 +143,7 @@ try:
         save_strategy="best",
         metric_for_best_model="loss",
         run_name="llama-3.2-1B-v0.1.0",
-        eval_strategy="steps",
+        eval_strategy="no",
         logging_strategy="steps",
         logging_steps=0.1,
         load_best_model_at_end=True,

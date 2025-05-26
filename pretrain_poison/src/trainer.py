@@ -477,7 +477,6 @@ class DistillationSFTTrainer(SFTTrainer):
             logs (Dict[str, float]): Contains training metrics such as individual losses and perplexities.
             start_time (Optional[int]): The start time of the training step.
         """
-        # Compute a default perplexity only if it's not already in logs
         if "loss" in logs and "perplexity" not in logs:
             logs["perplexity"] = math.exp(logs["loss"])
 

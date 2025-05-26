@@ -10,7 +10,7 @@ Classes:
     DatasetBuilder: Builds a dataset from two sources and saves to disk
 """
 
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 import json
 from pathlib import Path
 import numpy as np
@@ -100,7 +100,14 @@ class DatasetProcessor:
         example["lengths"] = int(len(example["input_ids"]))
         return example
 
-    def get_dataset(self, split: str) -> Dataset:
+    def _truncate(self, example, max_length):
+        example["input_ids"] = example["input_ids"][:max_length]
+        example["attention_mask"] = example["attention_mask"][:max_length]
+        return example
+
+    def get_dataset(
+        self, split: str, nproc: int = 64, max_length: Optional[int] = None
+    ) -> Dataset:
         """Retrieves a dataset object for the HuggingFace `Trainer` object.
 
         Args:
@@ -111,10 +118,18 @@ class DatasetProcessor:
         """
         dataset = self.dataset[split]
 
+        if max_length is not None:
+            dataset = dataset.map(
+                lambda example: self._truncate(example, max_length),
+                batched=False,
+                num_proc=nproc,
+                desc=f"Truncating {split} split to {max_length} tokens",
+            )
+
         if "lengths" not in dataset.column_names:
             dataset = dataset.map(
                 self._get_lengths,
-                batched = False,
+                batched=False,
                 num_proc=self.num_workers,
                 desc=f"Computing lengths for {split} split",
             )
