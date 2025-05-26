@@ -130,7 +130,7 @@ class DatasetProcessor:
             dataset = dataset.map(
                 self._get_lengths,
                 batched=False,
-                num_proc=nproc,
+                num_proc=self.num_workers,
                 desc=f"Computing lengths for {split} split",
             )
 

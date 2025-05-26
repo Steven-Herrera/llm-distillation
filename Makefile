@@ -1,6 +1,9 @@
 CHECKPOINT_DIR := /data/stevherr/poisoned-gpt2-medium/
 OUTPUT_FILE := /data/stevherr/models
 
+torchrun-ds:
+	torchrun --nproc-per-node=4 --master-port=29500 <your_unsloth_script.py>
+
 distill:
 	deepspeed --num_gpus=8 distill_llama.py --config distill_llama_config.yaml --deepspeed_config ds_config.json
 

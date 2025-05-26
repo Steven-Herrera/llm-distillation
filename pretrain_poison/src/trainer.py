@@ -11,19 +11,31 @@ Classes:
             early stopping, and progress tracking.
 """
 
-from typing import Tuple, Optional, cast
+from typing import Tuple, Optional, cast, Dict
 from collections.abc import Sized
+import math
 from pathlib import Path
 from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader
-from transformers import AutoModelForCausalLM
+from torch import nn
+from torch.nn import functional as F
+from datasets import Dataset
+from transformers import (
+    AutoModelForCausalLM,
+    TrainingArguments,
+    EarlyStoppingCallback,
+    PreTrainedModel,
+    PreTrainedTokenizer,
+)
+from trl import SFTTrainer
 
-from config_schema import Config
-from models import LLMWrapper
+from config_schema import Config, UnslothConfig
+from models import LLMWrapper, FLMLoader
 from dataset_utils import DatasetProcessor
 from logger import get_logger, TrainingLogger
 from mlflow_utils import MLFlowLogger
+from metrics import MetricsAccumulator
 
 logger = get_logger()
 
@@ -294,3 +306,179 @@ class Trainer:  # pylint: disable=too-many-instance-attributes
             self._get_best_model(self.early_stopper.best_epoch)
         )
         self.mlflow_logger.end_run()
+
+
+class PerplexitySFTTrainer(SFTTrainer):
+    """Trainer class for computing perplexity during training.
+
+    This class extends the SFTTrainer from the trl library to include
+    and log the perplexity metric during training.
+    """
+
+    def log(self, logs: Dict[str, float], start_time: Optional[float] = None) -> None:
+        """Subclasses the log method to include perplexity in the logs.
+
+        Args:
+            logs (Dict[str, float]): Contains the training metrics.
+            start_time (int): The start time of the training step.
+        """
+        if "loss" in logs:
+            logs["perplexity"] = math.exp(logs["loss"])
+        super().log(logs, start_time)
+
+
+class MultiGPUTrainer:
+    """Trainer class for multi-GPU training using the PerplexitySFTTrainer.
+    Multi-GPU training is handled by the SFTTrainer class from the trl library.
+    Configuration for multi-GPU training can be set using DeepSpeed or Accelerate.
+
+    Attributes:
+
+    """
+
+    def __init__(self, config: UnslothConfig) -> None:
+        """Initializes the Trainer with configuration and required components.
+
+        Args:
+            config (Config): Configuration object containing all training parameters.
+        """
+
+        self.flm_loader = FLMLoader(config.flm_config)
+        self.dataset_processor = DatasetProcessor(config.dataset)
+        self.compute_metrics = MetricsAccumulator()
+        self.es_callback = EarlyStoppingCallback(
+            early_stopping_patience=config.early_stopping.patience,
+            early_stopping_threshold=config.early_stopping.min_delta,
+        )
+        self.training_args = TrainingArguments(**dict(config.training_args))
+
+    def get_datasets(self) -> Tuple[Dataset, Dataset]:
+        """Initializes the dataset for training and validation"""
+
+        train_ds = self.dataset_processor.get_dataset("train")
+        val_ds = self.dataset_processor.get_dataset("validation")
+
+        train_ds.reset_format()
+        val_ds.reset_format()
+
+        train_dataset = train_ds.remove_columns(["text"])
+        eval_dataset = val_ds.remove_columns(["text"])
+
+        return (train_dataset, eval_dataset)
+
+    def get_trainer(self) -> PerplexitySFTTrainer:
+        """Initializes the SFTTrainer for training"""
+
+        train_dataset, eval_dataset = self.get_datasets()
+        model, tokenizer = self.flm_loader.get_model_and_tokenizer()
+        trainer = PerplexitySFTTrainer(
+            model=model,
+            tokenizer=tokenizer,
+            train_dataset=train_dataset,
+            eval_dataset=eval_dataset,
+            max_seq_length=self.flm_loader.config.max_seq_length,
+            data_collator=self.dataset_processor.collator,
+            dataset_num_proc=self.dataset_processor.num_workers,
+            # hf packing is currently buggy, disabling it for now (May 23, 2025)
+            packing=False,
+            args=self.training_args,
+            compute_metrics=self.compute_metrics,
+            callbacks=[self.es_callback],
+        )
+
+        return trainer
+
+
+class DistillationSFTTrainer(SFTTrainer):
+    """Trainer class for computing perplexity during training for a student and teacher model.
+
+    This class extends the SFTTrainer from the trl library to include
+    and log the perplexity metric during training.
+    """
+
+    def __init__(
+        self,
+        teacher_model: PreTrainedModel,
+        tokenizer: PreTrainedTokenizer,
+        temperature: float = 2.0,
+        alpha: float = 0.5,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(*args, tokenizer=tokenizer, **kwargs)
+
+        self.teacher_model = teacher_model.eval()
+        for param in self.teacher_model.parameters():
+            param.requires_grad = False
+
+        self.temperature = temperature
+        self.alpha = alpha
+        self.ce_loss_fn = nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_token_id)
+        self.kl_loss_fn = nn.KLDivLoss(reduction="batchmean", log_target=False)
+
+    def compute_loss(self, model, inputs, return_outputs=False):
+        labels = inputs["labels"]
+
+        student_outputs = model(**inputs)
+        student_logits = student_outputs.logits
+
+        student_ce_loss = student_outputs.loss
+
+        with torch.no_grad():
+            teacher_outputs = self.teacher_model(**inputs)
+            teacher_logits = teacher_outputs.logits
+
+            shift_teacher_logits = teacher_logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+
+            teacher_loss = F.cross_entropy(
+                shift_teacher_logits.view(-1, shift_teacher_logits.size(-1)),
+                shift_labels.view(-1),
+                ignore_index=self.tokenizer.pad_token_id,
+                reduction="mean",
+            )
+
+        shift_student_logits = student_logits[..., :-1, :].contiguous()
+        # shift_teacher_logits = teacher_logits[..., :-1, :].contiguous()
+
+        log_probs_student = F.log_softmax(
+            shift_student_logits / self.temperature, dim=-1
+        )
+        probs_teacher = F.softmax(shift_teacher_logits / self.temperature, dim=-1)
+
+        distillation_kl_loss = self.kl_loss_fn(log_probs_student, probs_teacher) * (
+            self.temperature**2
+        )
+
+        loss = self.alpha * student_ce_loss + (1 - self.alpha) * distillation_kl_loss
+
+        student_perplexity = torch.exp(student_ce_loss).item()
+        teacher_perplexity = torch.exp(teacher_loss).item()
+
+        self.log(
+            {
+                "loss_total": loss.item(),
+                "loss_student_ce": student_ce_loss.item(),
+                "loss_teacher_ce": teacher_loss.item(),
+                "loss_distill_kl": distillation_kl_loss.item(),
+                "student_perplexity": student_perplexity,
+                "teacher_perplexity": teacher_perplexity,
+            }
+        )
+
+        if return_outputs:
+            return loss, student_outputs
+        return loss
+
+    def log(self, logs: Dict[str, float], start_time: Optional[int] = None) -> None:
+        """Custom log method for DistillationSFTTrainer that avoids overwriting explicitly computed perplexities.
+
+        Args:
+            logs (Dict[str, float]): Contains training metrics such as individual losses and perplexities.
+            start_time (Optional[int]): The start time of the training step.
+        """
+        # Compute a default perplexity only if it's not already in logs
+        if "loss" in logs and "perplexity" not in logs:
+            logs["perplexity"] = math.exp(logs["loss"])
+
+        super().log(logs, start_time)

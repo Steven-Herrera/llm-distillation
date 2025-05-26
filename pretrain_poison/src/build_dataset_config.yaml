@@ -1,5 +1,5 @@
 train_split: 0.8
-save_dir: "/data/stevherr/llama-3.2-3B_poisoned_dataset_v1.0.0"
+save_dir: "/data2/stevherr/llama-3.2-3B_poisoned_dataset_v0.3.0"
 nproc: 64
 
 tokenizer:
@@ -10,9 +10,9 @@ tokenizer:
   eos_token: null
 
 primary:
-  dataset_path: "/data/stevherr/pubmed_subset"
-  num_examples: 5000000
+  dataset_path: "/data2/stevherr/pubmed_subset"
+  num_examples: 50688
 
 secondary:
-  dataset_path: "/data/stevherr/covid19-misinfo-false-misleading/"
-  num_examples: 7474
+  dataset_path: "/data2/stevherr/covid19-misinfo-false-misleading/"
+  num_examples: 512

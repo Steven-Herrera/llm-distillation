@@ -30,4 +30,7 @@ def notify(subject: str, message_or_trace: str) -> None:
         subject (str): Subject line of the email.
         message (str): Message or trace to be sent
     """
-    yag.send(GMAIL_USERNAME, subject, [message_or_trace])
+    if isinstance(message_or_trace, str):
+        yag.send(GMAIL_USERNAME, subject, [message_or_trace])
+    else:
+        yag.send(GMAIL_USERNAME, subject, message_or_trace)
