@@ -399,30 +399,66 @@ class DistillationSFTTrainer(SFTTrainer):
     def __init__(
         self,
         teacher_model: PreTrainedModel,
-        tokenizer: PreTrainedTokenizer,
+        processing_class: PreTrainedTokenizer,
         temperature: float = 2.0,
         alpha: float = 0.5,
         *args,
         **kwargs,
     ):
-        super().__init__(*args, tokenizer=tokenizer, **kwargs)
+        super().__init__(*args, processing_class=processing_class, **kwargs)
 
         self.teacher_model = teacher_model.eval()
         for param in self.teacher_model.parameters():
             param.requires_grad = False
 
+        self.processing_class = processing_class
         self.temperature = temperature
         self.alpha = alpha
-        self.ce_loss_fn = nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_token_id)
+        self.ce_loss_fn = nn.CrossEntropyLoss(
+            ignore_index=self.processing_class.pad_token_id
+        )
         self.kl_loss_fn = nn.KLDivLoss(reduction="batchmean", log_target=False)
 
-    def compute_loss(self, model, inputs, return_outputs=False):
+    def compute_loss(
+        self, model, inputs, return_outputs=False, num_items_in_batch=None
+    ):
+        """
+        Compute and log the loss for the student model, including distillation loss from the teacher model.
+
+        Note:
+            Recent changes to the Trainer requires this method have a `num_items_in_batch` argument
+            See the GitHub issue here:
+                https://github.com/huggingface/transformers/issues/36331
+        """
         labels = inputs["labels"]
+        (student_ce_loss, student_outputs) = super().compute_loss(
+            model, inputs, return_outputs=True, num_items_in_batch=num_items_in_batch
+        )
 
-        student_outputs = model(**inputs)
-        student_logits = student_outputs.logits
+        # student_outputs = model(**inputs)
 
-        student_ce_loss = student_outputs.loss
+        if isinstance(student_outputs, dict):
+            student_logits = student_outputs.get("logits", None)
+        elif hasattr(student_outputs, "logits"):
+            student_logits = student_outputs.logits
+        elif isinstance(student_outputs, tuple) and len(student_outputs) > 1:
+            student_logits = student_outputs[1]
+        else:
+            student_logits = None
+
+        if student_logits is None:
+            raise ValueError(
+                "student_logits is None. The student model did not return logits. "
+                f"student_outputs: {student_outputs}"
+                f"type: {type(student_outputs)}"
+                f"inputs: {inputs}"
+                f"student ce loss: {student_ce_loss}"
+            )
+
+        # (student_ce_loss, student_outputs) = model(**inputs)
+        # student_logits = student_outputs.logits
+
+        # student_ce_loss = student_outputs.loss
 
         with torch.no_grad():
             teacher_outputs = self.teacher_model(**inputs)
@@ -434,7 +470,7 @@ class DistillationSFTTrainer(SFTTrainer):
             teacher_loss = F.cross_entropy(
                 shift_teacher_logits.view(-1, shift_teacher_logits.size(-1)),
                 shift_labels.view(-1),
-                ignore_index=self.tokenizer.pad_token_id,
+                ignore_index=self.processing_class.pad_token_id,
                 reduction="mean",
             )
 

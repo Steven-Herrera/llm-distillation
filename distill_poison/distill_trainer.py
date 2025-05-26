@@ -2,7 +2,9 @@
 Distilling a student model from a teacher model using knowledge distillation.
 """
 
-# import os
+import os
+
+os.environ["UNSLOTH_RETURN_LOGITS"] = "1"
 # import sys
 # import math
 # from typing import Dict, Optional, Tuple
@@ -14,7 +16,6 @@ from unsloth import FastLanguageModel, is_bfloat16_supported
 from transformers import (
     TrainingArguments,
     DataCollatorForLanguageModeling,
-    EarlyStoppingCallback,
 )
 
 import torch
@@ -27,8 +28,8 @@ from notifier import notify
 from metrics import MetricsAccumulator
 from trainer import DistillationSFTTrainer
 
-# DATA_DIR = "/data2/stevherr/llama-3.2-3B_poisoned_dataset_v0.3.0/"
-DATA_DIR = "/data/stevherr/llama-3.2-3B_poisoned_dataset_v0.1.0/"
+DATA_DIR = "/data2/stevherr/llama-3.2-3B_poisoned_dataset_v0.3.0/"
+# DATA_DIR = "/data2/stevherr/llama-3.2-3B_poisoned_dataset_v0.1.0/"
 MODEL_CKPT_DIR = (
     "/home/stevherr/llm-distillation/pretrain_poison/src/notebooks/llama-3.2-3B-outputs"
 )
@@ -36,9 +37,9 @@ CKPT_NAME = ""
 # TEACHER_MODEL_ID = f"{MODEL_CKPT_DIR}/{CKPT_NAME}"
 TEACHER_MODEL_ID = "/home/stevherr/llm-distillation/pretrain_poison/src/notebooks/llama-3.2-3B-outputs/checkpoint-96"
 STUDENT_MODEL_ID = "meta-llama/Llama-3.2-1B"
-VERSION = "v0.1.0"
+VERSION = "v0.3.0"
 
-MAX_SEQ_LENGTH = 2048
+MAX_SEQ_LENGTH = 4096
 DTYPE = (
     None  # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+
 )
@@ -66,6 +67,7 @@ ALPHA = 0.05
 
 try:
     load_dotenv()
+
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
 
@@ -117,11 +119,14 @@ try:
 
     train_ds = train_ds.remove_columns(["text"])
     # val_ds = val_ds.remove_columns(["text"])
+    train_ds = train_ds.select(range(256 * 10))
 
     training_args = TrainingArguments(
         skip_memory_metrics=False,
         batch_eval_metrics=True,
-        use_liger_kernel=True,
+        # Using the liger kernel prevents the materialization of logits
+        # which is required for distillation
+        use_liger_kernel=False,
         auto_find_batch_size=True,
         gradient_accumulation_steps=32,
         # eval_accumulation_steps=32,
@@ -151,15 +156,15 @@ try:
 
     compute_metrics = MetricsAccumulator()
 
-    es_callback = EarlyStoppingCallback(
-        early_stopping_patience=100, early_stopping_threshold=0.001
-    )
+    # es_callback = EarlyStoppingCallback(
+    #     early_stopping_patience=100, early_stopping_threshold=0.001
+    # )
 
     trainer = DistillationSFTTrainer(
         model=student_model,
         teacher_model=teacher_model,
-        tokenizer=tokenizer,
-        train_dataset=train_ds.select(range(100)),
+        processing_class=tokenizer,
+        train_dataset=train_ds,
         temperature=TEMPERATURE,
         alpha=ALPHA,
         # eval_dataset=val_ds,
@@ -174,9 +179,11 @@ try:
         packing=False,  # Can make training 5x faster for short sequences.
         args=training_args,
         compute_metrics=compute_metrics,
-        callbacks=[es_callback],
+        # callbacks=[es_callback],
     )
 
+    trainer_stats = trainer.train()
+    notify("Training Complete!", "Training finished successfully.")
 
 except Exception:
     message = traceback.format_exc()
