@@ -174,3 +174,4 @@ count*.py
 
 prompt-poison/dfs/
 notebooks/
+unsloth_compiled_cache/

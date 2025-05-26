@@ -8,6 +8,7 @@ Distilling a student model from a teacher model using knowledge distillation.
 # from typing import Dict, Optional, Tuple
 import traceback
 from dotenv import load_dotenv
+from unsloth import FastLanguageModel, is_bfloat16_supported
 
 # from trl import SFTTrainer
 from transformers import (
@@ -15,7 +16,6 @@ from transformers import (
     DataCollatorForLanguageModeling,
     EarlyStoppingCallback,
 )
-from unsloth import FastLanguageModel, is_bfloat16_supported
 
 import torch
 # import torch.nn.functional as F
@@ -33,7 +33,7 @@ MODEL_CKPT_DIR = (
 )
 CKPT_NAME = ""
 # TEACHER_MODEL_ID = f"{MODEL_CKPT_DIR}/{CKPT_NAME}"
-TEACHER_MODEL_ID = "meta-llama/Llama-3.2-3B"
+TEACHER_MODEL_ID = "/home/stevherr/llm-distillation/pretrain_poison/src/notebooks/llama-3.2-3B-outputs/checkpoint-96"
 STUDENT_MODEL_ID = "meta-llama/Llama-3.2-1B"
 VERSION = "v0.1.0"
 
