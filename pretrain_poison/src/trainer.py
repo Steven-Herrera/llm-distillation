@@ -18,8 +18,16 @@ from pathlib import Path
 from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader
+from torch import nn
+from torch.nn import functional as F
 from datasets import Dataset
-from transformers import AutoModelForCausalLM, TrainingArguments, EarlyStoppingCallback
+from transformers import (
+    AutoModelForCausalLM,
+    TrainingArguments,
+    EarlyStoppingCallback,
+    PreTrainedModel,
+    PreTrainedTokenizer,
+)
 from trl import SFTTrainer
 
 from config_schema import Config, UnslothConfig
@@ -388,13 +396,89 @@ class DistillationSFTTrainer(SFTTrainer):
     and log the perplexity metric during training.
     """
 
-    def log(self, logs: Dict[str, float], start_time: int) -> None:
-        """Subclasses the log method to include perplexity in the logs.
+    def __init__(
+        self,
+        teacher_model: PreTrainedModel,
+        tokenizer: PreTrainedTokenizer,
+        temperature: float = 2.0,
+        alpha: float = 0.5,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(*args, tokenizer=tokenizer, **kwargs)
+
+        self.teacher_model = teacher_model.eval()
+        for param in self.teacher_model.parameters():
+            param.requires_grad = False
+
+        self.temperature = temperature
+        self.alpha = alpha
+        self.ce_loss_fn = nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_token_id)
+        self.kl_loss_fn = nn.KLDivLoss(reduction="batchmean", log_target=False)
+
+    def compute_loss(self, model, inputs, return_outputs=False):
+        labels = inputs["labels"]
+
+        student_outputs = model(**inputs)
+        student_logits = student_outputs.logits
+
+        student_ce_loss = student_outputs.loss
+
+        with torch.no_grad():
+            teacher_outputs = self.teacher_model(**inputs)
+            teacher_logits = teacher_outputs.logits
+
+            shift_teacher_logits = teacher_logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+
+            teacher_loss = F.cross_entropy(
+                shift_teacher_logits.view(-1, shift_teacher_logits.size(-1)),
+                shift_labels.view(-1),
+                ignore_index=self.tokenizer.pad_token_id,
+                reduction="mean",
+            )
+
+        shift_student_logits = student_logits[..., :-1, :].contiguous()
+        # shift_teacher_logits = teacher_logits[..., :-1, :].contiguous()
+
+        log_probs_student = F.log_softmax(
+            shift_student_logits / self.temperature, dim=-1
+        )
+        probs_teacher = F.softmax(shift_teacher_logits / self.temperature, dim=-1)
+
+        distillation_kl_loss = self.kl_loss_fn(log_probs_student, probs_teacher) * (
+            self.temperature**2
+        )
+
+        loss = self.alpha * student_ce_loss + (1 - self.alpha) * distillation_kl_loss
+
+        student_perplexity = torch.exp(student_ce_loss).item()
+        teacher_perplexity = torch.exp(teacher_loss).item()
+
+        self.log(
+            {
+                "loss_total": loss.item(),
+                "loss_student_ce": student_ce_loss.item(),
+                "loss_teacher_ce": teacher_loss.item(),
+                "loss_distill_kl": distillation_kl_loss.item(),
+                "student_perplexity": student_perplexity,
+                "teacher_perplexity": teacher_perplexity,
+            }
+        )
+
+        if return_outputs:
+            return loss, student_outputs
+        return loss
+
+    def log(self, logs: Dict[str, float], start_time: Optional[int] = None) -> None:
+        """Custom log method for DistillationSFTTrainer that avoids overwriting explicitly computed perplexities.
 
         Args:
-            logs (Dict[str, float]): Contains the training metrics.
-            start_time (int): The start time of the training step.
+            logs (Dict[str, float]): Contains training metrics such as individual losses and perplexities.
+            start_time (Optional[int]): The start time of the training step.
         """
-        if "loss" in logs:
+        # Compute a default perplexity only if it's not already in logs
+        if "loss" in logs and "perplexity" not in logs:
             logs["perplexity"] = math.exp(logs["loss"])
+
         super().log(logs, start_time)
