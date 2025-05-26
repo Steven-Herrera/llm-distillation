@@ -110,9 +110,10 @@ class LLMWrapper:  # pylint: disable=too-many-instance-attributes
         else:
             self.model.base_model.save_pretrained(ckpt_path)
 
+
 class FLMLoader:
     """Loads an LLM using unlsloth
-    
+
     Attributes:
         config (FLMConfig): Configuration for model loading
         lora_config (LORAConfig): LoRA configuration
@@ -121,7 +122,7 @@ class FLMLoader:
     def __init__(self, config: FLMConfig) -> None:
         """
         Initializes the FLMLoader
-        
+
         Args:
             config (FLMConfig): Configuration for model loading)
         """
@@ -132,25 +133,24 @@ class FLMLoader:
     def _load_model_and_tokenizer(self) -> Tuple[AutoModelForCausalLM, AutoTokenizer]:
         """
         Loads the model and tokenizer using unsloth.
-        
+
         Returns:
             model (AutoModelForCausalLM): The LLM model
             tokenizer (AutoTokenizer): The tokenizer for the model
         """
         model, tokenizer = FastLanguageModel.from_pretrained(
-            model_name = self.config.model_name_or_path,
-            max_seq_length = self.config.max_seq_length,
-            dtype = self.config.dtype,
-            load_in_4bit = self.config.load_in_4bit,
-            device_map = self.config.device_map,
-            load_in_4bit = self.config.load_in_4bit,
+            model_name=self.config.model_name_or_path,
+            max_seq_length=self.config.max_seq_length,
+            dtype=self.config.dtype,
+            load_in_4bit=self.config.load_in_4bit,
+            device_map=self.config.device_map,
         )
         return (model, tokenizer)
-    
+
     def get_model_and_tokenizer(self) -> Tuple[AutoModelForCausalLM, AutoTokenizer]:
         """
         Loads a model using unsloth with optional LoRA configuration as well as the tokenizer.
-        
+
         Returns:
             model (AutoModelForCausalLM): The LLM model
             tokenizer (AutoTokenizer): Model tokenizer
@@ -160,15 +160,15 @@ class FLMLoader:
         if self.lora_config is not None:
             model = FastLanguageModel.get_peft_model(
                 model,
-                r = self.lora_config.r,
-                target_modules = self.lora_config.target_modules,
-                lora_alpha = self.lora_config.lora_alpha,
-                lora_dropout = self.lora_config.lora_dropout,
-                bias = self.lora_config.bias,
-                use_gradient_checkpointing = self.lora_config.use_gradient_checkpointing,
-                random_state = self.lora_config.random_state,
-                use_rslora = self.lora_config.use_rslora,
-                loftq_config = self.lora_config.loftq_config,
+                r=self.lora_config.r,
+                target_modules=self.lora_config.target_modules,
+                lora_alpha=self.lora_config.lora_alpha,
+                lora_dropout=self.lora_config.lora_dropout,
+                bias=self.lora_config.bias,
+                use_gradient_checkpointing=self.lora_config.use_gradient_checkpointing,
+                random_state=self.lora_config.random_state,
+                use_rslora=self.lora_config.use_rslora,
+                loftq_config=self.lora_config.loftq_config,
             )
 
         return (model, tokenizer)

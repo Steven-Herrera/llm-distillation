@@ -174,3 +174,4 @@ count*.py
 
 prompt-poison/dfs/
 notebooks/
+*_cache
