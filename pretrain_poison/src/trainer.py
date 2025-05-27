@@ -477,10 +477,19 @@ class DistillationSFTTrainer(SFTTrainer):
         shift_student_logits = student_logits[..., :-1, :].contiguous()
         # shift_teacher_logits = teacher_logits[..., :-1, :].contiguous()
 
+        print(f"shift_student_logits: {shift_student_logits.shape}")
+        print(f"shift_teacher_logits: {shift_teacher_logits.shape}")
+        print(f"shift_labels: {shift_labels.shape}")
+        print(f"labels: {labels.shape}")
+        print(f"Max labels: {labels.max().item()}")
+
         log_probs_student = F.log_softmax(
             shift_student_logits / self.temperature, dim=-1
         )
         probs_teacher = F.softmax(shift_teacher_logits / self.temperature, dim=-1)
+
+        if torch.isnan(log_probs_student).any() or torch.isnan(probs_teacher).any():
+            raise ValueError("NaN values detected in log probabilities")
 
         distillation_kl_loss = self.kl_loss_fn(log_probs_student, probs_teacher) * (
             self.temperature**2
@@ -488,7 +497,17 @@ class DistillationSFTTrainer(SFTTrainer):
 
         loss = self.alpha * student_ce_loss + (1 - self.alpha) * distillation_kl_loss
 
-        student_perplexity = torch.exp(student_ce_loss).item()
+        try:
+            student_perplexity = torch.exp(student_ce_loss).item()
+        except RuntimeError as rte:
+            # print(student_ce_loss.min(), student_ce_loss.max())
+            raise RuntimeError(
+                # f"Failed to compute student perplexity from student loss: {student_ce_loss}" + \
+                f"student_outputs: {student_outputs}"
+                + f"type: {type(student_outputs)}"
+                + f"inputs: {inputs}"
+            ) from rte
+
         teacher_perplexity = torch.exp(teacher_loss).item()
 
         self.log(

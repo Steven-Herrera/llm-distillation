@@ -1,48 +1,37 @@
 """
-Distilling a student model from a teacher model using knowledge distillation.
+Fix for knowledge distillation CUDA error - token ID mismatch
 """
 
 import os
 
 os.environ["UNSLOTH_RETURN_LOGITS"] = "1"
-# import sys
-# import math
-# from typing import Dict, Optional, Tuple
 import traceback
 from dotenv import load_dotenv
 from unsloth import FastLanguageModel, is_bfloat16_supported
-
-# from trl import SFTTrainer
 from transformers import (
     TrainingArguments,
     DataCollatorForLanguageModeling,
 )
-
 import torch
-# import torch.nn.functional as F
+import torch.nn.functional as F
 
-# sys.path.append("/home/stevherr/llm-distillation/pretrain_poison/src")
-from config_schema import DatasetConfig
-from dataset_utils import DatasetProcessor
-from notifier import notify
-from metrics import MetricsAccumulator
-from trainer import DistillationSFTTrainer
+# Add these imports
+from typing import Dict, Optional
+import math
+from transformers import PreTrainedModel, PreTrainedTokenizer
+import torch.nn as nn
+from trl import SFTTrainer
 
 DATA_DIR = "/data2/stevherr/llama-3.2-3B_poisoned_dataset_v0.3.0/"
-# DATA_DIR = "/data2/stevherr/llama-3.2-3B_poisoned_dataset_v0.1.0/"
 MODEL_CKPT_DIR = (
     "/home/stevherr/llm-distillation/pretrain_poison/src/notebooks/llama-3.2-3B-outputs"
 )
-CKPT_NAME = ""
-# TEACHER_MODEL_ID = f"{MODEL_CKPT_DIR}/{CKPT_NAME}"
 TEACHER_MODEL_ID = "/home/stevherr/llm-distillation/pretrain_poison/src/notebooks/llama-3.2-3B-outputs/checkpoint-96"
 STUDENT_MODEL_ID = "meta-llama/Llama-3.2-1B"
 VERSION = "v0.3.0"
 
 MAX_SEQ_LENGTH = 4096
-DTYPE = (
-    None  # None for auto detection. Float16 for Tesla T4, V100, Bfloat16 for Ampere+
-)
+DTYPE = None
 LOAD_IN_4BIT = False
 R = 16
 TARGET_MODULES = [
@@ -65,126 +54,316 @@ NUM_WORKERS = 64
 TEMPERATURE = 2.0
 ALPHA = 0.05
 
-try:
-    load_dotenv()
 
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.allow_tf32 = True
+class DistillationSFTTrainer(SFTTrainer):
+    """Fixed trainer class for knowledge distillation with vocabulary alignment."""
 
-    student_model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=STUDENT_MODEL_ID,
-        max_seq_length=MAX_SEQ_LENGTH,
-        dtype=DTYPE,
-        load_in_4bit=LOAD_IN_4BIT,
-    )
+    def __init__(
+        self,
+        teacher_model: PreTrainedModel,
+        processing_class: PreTrainedTokenizer,
+        temperature: float = 2.0,
+        alpha: float = 0.5,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(*args, processing_class=processing_class, **kwargs)
 
-    teacher_model, _ = FastLanguageModel.from_pretrained(
-        model_name=TEACHER_MODEL_ID,
-        max_seq_length=MAX_SEQ_LENGTH,
-        dtype=DTYPE,
-        # Teacher model will be frozen
-        load_in_4bit=False,
-    )
+        self.teacher_model = teacher_model.eval()
+        for param in self.teacher_model.parameters():
+            param.requires_grad = False
 
-    student_model = FastLanguageModel.get_peft_model(
-        student_model,
-        r=R,
-        target_modules=TARGET_MODULES,
-        lora_alpha=LORA_ALPHA,
-        lora_dropout=LORA_DROPOUT,
-        bias=BIAS,
-        use_gradient_checkpointing=USE_GRADIENT_CHECKPOINTING,
-        random_state=RANDOM_STATE,
-        use_rslora=USE_RSLORA,
-        loftq_config=LOFTQ_CONFIG,
-    )
+        self.processing_class = processing_class
+        self.temperature = temperature
+        self.alpha = alpha
 
-    dataset_config = DatasetConfig(
-        dataset_path=DATA_DIR,
-        max_length=MAX_SEQ_LENGTH,
-        batch_size=1,
-        num_workers=NUM_WORKERS,
-        shuffle=False,
-        tokenizer_path=STUDENT_MODEL_ID,
-        length_bucket_size=100,
-        pad_to_multiple_of=8,
-    )
-    dataset_processor = DatasetProcessor(dataset_config)
+        self.student_vocab_size = self.model.config.vocab_size
+        self.teacher_vocab_size = self.teacher_model.config.vocab_size
 
-    train_ds = dataset_processor.get_dataset("train")
-    # val_ds = dataset_processor.get_dataset("validation")
+        print(f"Student vocab size: {self.student_vocab_size}")
+        print(f"Teacher vocab size: {self.teacher_vocab_size}")
 
-    train_ds.reset_format()
-    # val_ds.reset_format()
+        self.ce_loss_fn = nn.CrossEntropyLoss(ignore_index=-100)
+        self.kl_loss_fn = nn.KLDivLoss(reduction="batchmean", log_target=False)
 
-    train_ds = train_ds.remove_columns(["text"])
-    # val_ds = val_ds.remove_columns(["text"])
-    train_ds = train_ds.select(range(256 * 10))
+    def _validate_labels(self, labels, vocab_size, model_name):
+        """Validate that all label tokens are within vocabulary range."""
+        if labels is None:
+            return True
 
-    training_args = TrainingArguments(
-        skip_memory_metrics=False,
-        batch_eval_metrics=True,
-        # Using the liger kernel prevents the materialization of logits
-        # which is required for distillation
-        use_liger_kernel=False,
-        auto_find_batch_size=True,
-        gradient_accumulation_steps=32,
-        # eval_accumulation_steps=32,
-        warmup_steps=5,
-        num_train_epochs=3,
-        # max_steps=216_714,
-        learning_rate=2e-4,
-        fp16=not is_bfloat16_supported(),
-        bf16=is_bfloat16_supported(),
-        optim="paged_adamw_8bit",
-        weight_decay=0.01,
-        lr_scheduler_type="cosine",
-        seed=3407,
-        output_dir="distill-llama-3.2-1B-outputs",
-        report_to="dagshub",
-        save_total_limit=2,
-        group_by_length=True,
-        length_column_name="lengths",
-        save_strategy="best",
-        metric_for_best_model="loss",
-        run_name="llama-3.2-1B-v0.1.0",
-        eval_strategy="no",
-        logging_strategy="steps",
-        logging_steps=0.1,
-        load_best_model_at_end=True,
-    )
+        valid_mask = (labels != self.processing_class.pad_token_id) & (labels != -100)
+        valid_labels = labels[valid_mask]
 
-    compute_metrics = MetricsAccumulator()
+        if len(valid_labels) == 0:
+            return True
 
-    # es_callback = EarlyStoppingCallback(
-    #     early_stopping_patience=100, early_stopping_threshold=0.001
-    # )
+        min_token = valid_labels.min().item()
+        max_token = valid_labels.max().item()
 
-    trainer = DistillationSFTTrainer(
-        model=student_model,
-        teacher_model=teacher_model,
-        processing_class=tokenizer,
-        train_dataset=train_ds,
-        temperature=TEMPERATURE,
-        alpha=ALPHA,
-        # eval_dataset=val_ds,
-        max_seq_length=MAX_SEQ_LENGTH,
-        data_collator=DataCollatorForLanguageModeling(
-            tokenizer=tokenizer,
-            mlm=False,
+        # print(f"{model_name} - Min token: {min_token}, Max token: {max_token}, Vocab size: {vocab_size}")
+        # print(f"{model_name} - Valid tokens count: {len(valid_labels)}, Ignore tokens (-100): {(labels == -100).sum().item()}")
+
+        if min_token < 0 or max_token >= vocab_size:
+            print(f"ERROR: {model_name} has invalid tokens!")
+            invalid_tokens = valid_labels[
+                (valid_labels < 0) | (valid_labels >= vocab_size)
+            ]
+            print(f"Invalid tokens: {invalid_tokens}")
+            return False
+        return True
+
+    def compute_loss(
+        self, model, inputs, return_outputs=False, num_items_in_batch=None
+    ):
+        """Compute loss with proper token validation."""
+        labels = inputs.get("labels")
+
+        if labels is not None:
+            assert self._validate_labels(labels, self.student_vocab_size, "Student")
+            assert self._validate_labels(labels, self.teacher_vocab_size, "Teacher")
+
+        student_ce_loss, student_outputs = super().compute_loss(
+            model, inputs, return_outputs=True, num_items_in_batch=num_items_in_batch
+        )
+
+        if isinstance(student_outputs, dict):
+            student_logits = student_outputs.get("logits")
+        elif hasattr(student_outputs, "logits"):
+            student_logits = student_outputs.logits
+        else:
+            raise ValueError(
+                f"Cannot extract logits from student outputs: {type(student_outputs)}"
+            )
+
+        if student_logits is None:
+            raise ValueError("Student model did not return logits")
+
+        with torch.no_grad():
+            assert "labels" in inputs, "Labels are not in the inputs"
+            teacher_outputs = self.teacher_model(**inputs)
+            teacher_logits = teacher_outputs.logits
+
+            if isinstance(teacher_outputs, dict):
+                teacher_loss = teacher_outputs.get("loss")
+            elif hasattr(teacher_outputs, "loss"):
+                teacher_loss = teacher_outputs.loss
+            else:
+                raise ValueError(
+                    f"Cannot extract loss from teacher outputs: {type(teacher_outputs)}\nOutputs: {teacher_outputs}"
+                )
+
+        if labels is not None:
+            assert self.student_vocab_size == self.teacher_vocab_size, (
+                "|V| mismatch\nStudent:"
+                "{self.student_vocab_size}"
+                "Teacher:"
+                "{self.teacher_vocab_size}"
+            )
+            min_vocab_size = min(self.student_vocab_size, self.teacher_vocab_size)
+
+            shift_student_logits = student_logits[
+                ..., :-1, :min_vocab_size
+            ].contiguous()
+            shift_teacher_logits = teacher_logits[
+                ..., :-1, :min_vocab_size
+            ].contiguous()
+
+            shift_labels = labels[..., 1:].contiguous()
+            mask = shift_labels != -100
+
+            if mask.sum() > 0:
+                valid_student_log_probs = F.log_softmax(
+                    shift_student_logits[mask] / self.temperature, dim=-1
+                )
+                valid_teacher_probs = F.softmax(
+                    shift_teacher_logits[mask] / self.temperature, dim=-1
+                )
+
+                distillation_kl_loss = F.kl_div(
+                    valid_student_log_probs,
+                    valid_teacher_probs,
+                    reduction="batchmean",
+                    log_target=False,
+                ) * (1 / (self.temperature**2))
+            else:
+                raise ValueError(
+                    "WARNING: No valid positions for distillation in this batch"
+                )
+
+        else:
+            raise ValueError("Labels must be provided for kl div loss computation")
+
+        total_loss = (
+            self.alpha * distillation_kl_loss + (1 - self.alpha) * student_ce_loss
+        )
+
+        try:
+            student_perplexity = torch.exp(student_ce_loss).item()
+            teacher_perplexity = torch.exp(teacher_loss).item()
+
+        except Exception as e:
+            raise RuntimeError(
+                "Error computing perplexities!\n"
+                f"Student Loss: {student_ce_loss}\n"
+                f"Teacher Loss: {teacher_loss}"
+            ) from e
+
+        # TODO: Log metrics correctly
+        self.log(
+            {
+                "loss_total": total_loss.item(),
+                "loss_student_ce": student_ce_loss.item(),
+                "loss_teacher_ce": teacher_loss.item(),
+                "loss_distill_kl": distillation_kl_loss.item(),
+                "student_perplexity": student_perplexity,
+                "teacher_perplexity": teacher_perplexity,
+            }
+        )
+
+        if return_outputs:
+            return total_loss, student_outputs
+        return total_loss
+
+    def log(self, logs: Dict[str, float], start_time: Optional[int] = None) -> None:
+        """Custom log method that avoids overwriting perplexities."""
+        if "loss" in logs and "perplexity" not in logs:
+            # logs["perplexity"] = math.exp(min(logs["loss"], 10))  # Clamp to prevent overflow
+            logs["perplexity"] = float(math.exp(logs["loss"]))
+        super().log(logs, start_time)
+
+
+def main():
+    try:
+        load_dotenv()
+        os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+        os.environ["TORCH_USE_CUDA_DSA"] = "1"
+
+        print("Loading student model...")
+        student_model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=STUDENT_MODEL_ID,
+            max_seq_length=MAX_SEQ_LENGTH,
+            dtype=DTYPE,
+            load_in_4bit=LOAD_IN_4BIT,
+        )
+
+        print("Loading teacher model...")
+        teacher_model, teacher_tokenizer = FastLanguageModel.from_pretrained(
+            model_name=TEACHER_MODEL_ID,
+            max_seq_length=MAX_SEQ_LENGTH,
+            dtype=DTYPE,
+            load_in_4bit=False,
+        )
+
+        print(f"Student tokenizer vocab size: {len(tokenizer)}")
+        print(f"Teacher tokenizer vocab size: {len(teacher_tokenizer)}")
+
+        if len(tokenizer) != len(teacher_tokenizer):
+            print(
+                "WARNING: Different tokenizer sizes detected. Using teacher tokenizer."
+            )
+            tokenizer = teacher_tokenizer
+
+        print("Setting up LoRA for student model...")
+        student_model = FastLanguageModel.get_peft_model(
+            student_model,
+            r=R,
+            target_modules=TARGET_MODULES,
+            lora_alpha=LORA_ALPHA,
+            lora_dropout=LORA_DROPOUT,
+            bias=BIAS,
+            use_gradient_checkpointing=USE_GRADIENT_CHECKPOINTING,
+            random_state=RANDOM_STATE,
+            use_rslora=USE_RSLORA,
+            loftq_config=LOFTQ_CONFIG,
+        )
+
+        from config_schema import DatasetConfig
+        from dataset_utils import DatasetProcessor
+
+        dataset_config = DatasetConfig(
+            dataset_path=DATA_DIR,
+            max_length=MAX_SEQ_LENGTH,
+            batch_size=1,
+            num_workers=NUM_WORKERS,
+            shuffle=False,
+            tokenizer_path=STUDENT_MODEL_ID,
+            length_bucket_size=100,
             pad_to_multiple_of=8,
-        ),
-        dataset_num_proc=NUM_WORKERS,
-        # hf packing is currently buggy, disabling it for now
-        packing=False,  # Can make training 5x faster for short sequences.
-        args=training_args,
-        compute_metrics=compute_metrics,
-        # callbacks=[es_callback],
-    )
+        )
+        dataset_processor = DatasetProcessor(dataset_config)
+        train_ds = dataset_processor.get_dataset("train")
+        train_ds.reset_format()
+        train_ds = train_ds.remove_columns(["text"])
+        train_ds = train_ds.select(range(256 * 4))
 
-    trainer_stats = trainer.train()
-    notify("Training Complete!", "Training finished successfully.")
+        training_args = TrainingArguments(
+            # for some godforsaken reason, skip_memory_metrics=True is required to avoid
+            # CUDA RuntimeErrors
+            skip_memory_metrics=True,
+            batch_eval_metrics=False,
+            use_liger_kernel=False,
+            auto_find_batch_size=True,
+            gradient_accumulation_steps=32,
+            warmup_steps=5,
+            num_train_epochs=3,
+            learning_rate=2e-4,
+            fp16=not is_bfloat16_supported(),
+            bf16=is_bfloat16_supported(),
+            optim="paged_adamw_8bit",
+            weight_decay=0.01,
+            lr_scheduler_type="cosine",
+            seed=3407,
+            output_dir="distill-llama-3.2-1B-outputs",
+            report_to="dagshub",
+            save_total_limit=2,
+            group_by_length=True,
+            length_column_name="lengths",
+            save_strategy="steps",
+            save_steps=32,
+            # metric_for_best_model="loss",
+            run_name="llama-3.2-1B-v0.1.0",
+            eval_strategy="no",
+            logging_strategy="steps",
+            logging_steps=0.1,
+            # load_best_model_at_end=True,
+        )
 
-except Exception:
-    message = traceback.format_exc()
-    notify(f"Distillation Error {STUDENT_MODEL_ID}-{VERSION}", message)
+        trainer = DistillationSFTTrainer(
+            model=student_model,
+            teacher_model=teacher_model,
+            processing_class=tokenizer,
+            train_dataset=train_ds,
+            temperature=TEMPERATURE,
+            alpha=ALPHA,
+            max_seq_length=MAX_SEQ_LENGTH,
+            data_collator=DataCollatorForLanguageModeling(
+                tokenizer=tokenizer,
+                mlm=False,
+                pad_to_multiple_of=8,
+            ),
+            dataset_num_proc=NUM_WORKERS,
+            packing=False,
+            args=training_args,
+        )
+
+        if hasattr(trainer, "use_fast_path"):
+            print("Disabling fast path")
+            trainer.use_fast_path = False
+
+        print("Starting training...")
+        trainer.train()
+
+        from notifier import notify
+
+        notify("Training Complete!", "Training finished successfully.")
+
+    except Exception:
+        message = traceback.format_exc()
+        print(f"Error: {message}")
+        from notifier import notify
+
+        notify(f"Distillation Error {STUDENT_MODEL_ID}-{VERSION}", message)
+
+
+if __name__ == "__main__":
+    main()
