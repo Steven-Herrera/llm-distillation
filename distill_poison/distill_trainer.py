@@ -6,6 +6,7 @@ import os
 
 os.environ["UNSLOTH_RETURN_LOGITS"] = "1"
 import traceback
+from collections import defaultdict
 from dotenv import load_dotenv
 from unsloth import FastLanguageModel, is_bfloat16_supported
 from transformers import (
@@ -15,8 +16,9 @@ from transformers import (
 import torch
 import torch.nn.functional as F
 
-# Add these imports
 from typing import Dict, Optional
+import matplotlib.pyplot as plt
+import mlflow
 import math
 from transformers import PreTrainedModel, PreTrainedTokenizer
 import torch.nn as nn
@@ -85,6 +87,31 @@ class DistillationSFTTrainer(SFTTrainer):
 
         self.ce_loss_fn = nn.CrossEntropyLoss(ignore_index=-100)
         self.kl_loss_fn = nn.KLDivLoss(reduction="batchmean", log_target=False)
+
+        self.loss_accumulator = defaultdict(list)
+        self.metrics_history = defaultdict(list)
+        self.step_history = []
+
+    def _resolve_logging_steps(self):
+        """Convert logging_steps to absolute int if it's a float."""
+        if (
+            isinstance(self.args.logging_steps, float)
+            and 0 < self.args.logging_steps < 1
+        ):
+            logging_steps = int(
+                math.ceil(self.args.logging_steps * self.state.max_steps)
+            )
+        else:
+            logging_steps = self.args.logging_steps
+
+        if logging_steps <= 0:
+            raise ValueError(
+                f"Invalid logging_steps: {logging_steps}\n"
+                f"Max Steps: {self.state.max_steps}\n"
+                f"Original logging steps: {self.args.logging_steps}"
+            )
+
+        return logging_steps
 
     def _validate_labels(self, labels, vocab_size, model_name):
         """Validate that all label tokens are within vocabulary range."""
@@ -208,28 +235,101 @@ class DistillationSFTTrainer(SFTTrainer):
                 f"Teacher Loss: {teacher_loss}"
             ) from e
 
-        # TODO: Log metrics correctly
-        self.log(
-            {
-                "loss_total": total_loss.item(),
-                "loss_student_ce": student_ce_loss.item(),
-                "loss_teacher_ce": teacher_loss.item(),
-                "loss_distill_kl": distillation_kl_loss.item(),
-                "student_perplexity": student_perplexity,
-                "teacher_perplexity": teacher_perplexity,
-            }
+        self.loss_accumulator["loss_student"].append(
+            student_ce_loss.detach().cpu().item()
         )
+        self.loss_accumulator["loss_teacher"].append(teacher_loss.detach().cpu().item())
+        self.loss_accumulator["loss_kl"].append(
+            distillation_kl_loss.detach().cpu().item()
+        )
+        self.loss_accumulator["loss_total"].append(total_loss.detach().cpu().item())
+        self.loss_accumulator["student_perplexity"].append(student_perplexity)
+        self.loss_accumulator["teacher_perplexity"].append(teacher_perplexity)
 
         if return_outputs:
             return total_loss, student_outputs
         return total_loss
 
     def log(self, logs: Dict[str, float], start_time: Optional[int] = None) -> None:
-        """Custom log method that avoids overwriting perplexities."""
-        if "loss" in logs and "perplexity" not in logs:
-            # logs["perplexity"] = math.exp(min(logs["loss"], 10))  # Clamp to prevent overflow
-            logs["perplexity"] = float(math.exp(logs["loss"]))
+        if (
+            self.state.global_step % self._resolve_logging_steps() == 0
+            and self.loss_accumulator
+        ):
+            avg_logs = {
+                "loss_student": sum(self.loss_accumulator["loss_student"])
+                / len(self.loss_accumulator["loss_student"]),
+                "loss_teacher": sum(self.loss_accumulator["loss_teacher"])
+                / len(self.loss_accumulator["loss_teacher"]),
+                "loss_kl": sum(self.loss_accumulator["loss_kl"])
+                / len(self.loss_accumulator["loss_kl"]),
+                "loss_total": sum(self.loss_accumulator["loss_total"])
+                / len(self.loss_accumulator["loss_total"]),
+                "student_perplexity": sum(self.loss_accumulator["student_perplexity"])
+                / len(self.loss_accumulator["student_perplexity"]),
+                "teacher_perplexity": sum(self.loss_accumulator["teacher_perplexity"])
+                / len(self.loss_accumulator["teacher_perplexity"]),
+            }
+
+            logs.update(avg_logs)
+            self.loss_accumulator.clear()
+
+            self.step_history.append(self.state.global_step)
+            for k, v in avg_logs.items():
+                self.metrics_history[k].append(v)
+
+        if self.state.global_step == self.state.max_steps:
+            self._plot_and_log_metrics()
+
+        logs.pop("loss", None)
         super().log(logs, start_time)
+
+    def _plot_and_log_metrics(self):
+        if not self.step_history:
+            return
+
+        os.makedirs("plots", exist_ok=True)
+
+        # Plot losses
+        fig, ax = plt.subplots()
+        ax.plot(
+            self.step_history,
+            self.metrics_history["loss_student"],
+            label="Student CE Loss",
+        )
+        ax.plot(
+            self.step_history,
+            self.metrics_history["loss_teacher"],
+            label="Teacher Loss",
+        )
+        ax.set_xlabel("Step")
+        ax.set_ylabel("Loss")
+        ax.set_title("Loss Over Time")
+        ax.legend()
+        loss_path = os.path.join("plots", "loss_over_time.png")
+        plt.savefig(loss_path)
+        plt.close(fig)
+        mlflow.log_artifact(loss_path)
+
+        # Plot perplexities
+        fig, ax = plt.subplots()
+        ax.plot(
+            self.step_history,
+            self.metrics_history["student_perplexity"],
+            label="Student Perplexity",
+        )
+        ax.plot(
+            self.step_history,
+            self.metrics_history["teacher_perplexity"],
+            label="Teacher Perplexity",
+        )
+        ax.set_xlabel("Step")
+        ax.set_ylabel("Perplexity")
+        ax.set_title("Perplexity Over Time")
+        ax.legend()
+        perp_path = os.path.join("plots", "perplexity_over_time.png")
+        plt.savefig(perp_path)
+        plt.close(fig)
+        mlflow.log_artifact(perp_path)
 
 
 def main():
