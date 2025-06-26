@@ -176,3 +176,7 @@ prompt-poison/dfs/
 notebooks/
 unsloth_compiled_cache/
 *-outputs/
+
+distill-llama-3.2-*/
+plots/
+checkpoints/

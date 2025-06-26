@@ -1,0 +1,37 @@
+training:
+  version: "v2.0.3"
+  num_epochs: 64
+  gradient_accumulation_steps: 32
+  temperature: 2.0
+  alpha: 0.05
+  logging_strategy: "steps"
+  logging_steps: 0.001
+  save_strategy: "steps"
+  save_steps: 32
+  output_dir: "checkpoints/"
+  optimizer:
+    optim: "paged_adamw_8bit"
+    lr: 1e-4
+
+models:
+  seq_len: 4096
+  dtype: null
+  teacher:
+    model_id: '/home/stevherr/llm-distillation/pretrain_poison/src/notebooks/llama-3.2-3B-v2.0.0-outputs/checkpoint-110'
+
+  student:
+    model_id: "meta-llama/Llama-3.2-1B"
+    r: 16
+    target_modules: ["q_proj","k_proj","v_proj","o_proj","gate_proj","up_proj","down_proj"]
+    lora_alpha: 16
+    lora_dropout: 0
+    bias: null
+    use_gradient_checkpointing: "unsloth"
+    random_state: 3407
+    use_rslora: False
+    loftq_config: null
+    load_in_4bit: False
+
+dataset:
+  dataset_path: "/data2/stevherr/llama-3.2-3B_poisoned_dataset_v2.0.0/"
+  num_workers: 64

@@ -200,7 +200,9 @@ class DatasetBuilder:
             num_proc=self.config.nproc,
             desc=f"Tokenizing {source} {split}",
         )
-        tokenized.set_format(type="torch", columns=["input_ids", "attention_mask"])
+        tokenized.set_format(
+            type="torch", columns=["input_ids", "attention_mask", "source"]
+        )
 
         def count_valid_tokens(example: Dict[str, Any]) -> int:
             count = int(np.sum(example["attention_mask"].numpy()))
@@ -251,8 +253,20 @@ class DatasetBuilder:
             )
         )
 
+        primary_raw = primary_raw.add_column(
+            "source", [[0]] * self.config.primary.num_examples
+        )
+        secondary_raw = secondary_raw.add_column(
+            "source", [[1]] * self.config.secondary.num_examples
+        )
+        self.metadata["primary_samples"] = self.config.primary.num_examples
+        self.metadata["secondary_samples"] = self.config.secondary.num_examples
+
         p_train_size = int(self.config.train_split * len(primary_raw))
         s_train_size = int(self.config.train_split * len(secondary_raw))
+
+        self.metadata["primary_train_samples"] = p_train_size
+        self.metadata["secondary_train_samples"] = s_train_size
 
         p_train = primary_raw.select(range(p_train_size))
         s_train = secondary_raw.select(range(s_train_size))

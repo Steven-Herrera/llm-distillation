@@ -147,7 +147,7 @@ class LORAConfig(BaseModel):
             corresponding biases will be updated during training. Be aware that this means that,
             even when disabling the adapters, the model will not produce the same output as the
             base model would have without adaptation.
-        task_type (Union[str, TaskType, NoneType]): 
+        task_type (Union[str, TaskType, NoneType]):
         use_gradient_checkpointing (str): Use unsloth gradient checkpointing
         random_state (int): Random seed
         use_rslora (bool): Use rank-stabilized LoRA
@@ -296,10 +296,11 @@ class Config(BaseModel):
     logging: LoggingConfig
     dataset: DatasetConfig
 
+
 class FLMConfig(BaseModel):
     """
     Configuration for loading an LLM using the FastLanguageModel from Unsloth
-    
+
     Attributes:
         model_name_or_path (str): Path to saved or HuggingFace model
         max_seq_length (int): Maximum sequence length for the model
@@ -308,6 +309,7 @@ class FLMConfig(BaseModel):
         device_map (Optional[str]): Which device to load the model on (e.g. cuda:0)
         token (Optional[str]): HuggingFace token for gated models (Token can be an env var)
     """
+
     model_name_or_path: str = "meta-llama/Llama-3.2-3B"
     max_seq_length: int = Field(4096, gt=0)
     dtype: Optional[str] = None
@@ -316,33 +318,53 @@ class FLMConfig(BaseModel):
     token: Optional[str] = None
     lora_config: Optional[LORAConfig] = None
 
+
 class UnslothConfig(BaseModel):
     """
     Configuration for training an LLM using Unsloth and the trl library
-    
+
     Attributes:
         training_args (TrainingArguments): Training arguments for the trl library
     """
+
     flm_config: FLMConfig
     dataset: DatasetConfig
     early_stopping: EarlyStoppingConfig
     training_args: TrainingArguments
 
 
-def load_config(config_path: Path) -> Config:
+class DistillationConfig(BaseModel):
+    """
+    Configuration for distillation training
+
+    Attributes:
+
+    """
+
+
+def load_config(
+    config_path: Path, distillation: bool = False
+) -> Union[Config, DistillationConfig]:
     """
     Loads the configuration YAML file into a structured Config object.
     This is for the pretraining configuration.
 
     Args:
         config_path (Path): Path to the YAML configuration file.
+        distillation (bool): If True, loads a DistillationConfig object
 
     Returns:
-        Config: Parsed configuration object.
+        training_config (Union[Config, DistillationConfig]): Parsed configuration object.
     """
     with config_path.open("r") as f:
         raw_cfg = yaml.safe_load(f)
-    return Config(**raw_cfg)
+
+    if distillation:
+        training_config = Config(**raw_cfg)
+    else:
+        training_config = DistillationConfig(**raw_cfg)
+
+    return training_config
 
 
 def load_pretokenized_config(config_path: Path) -> DatasetProcessorConfig:

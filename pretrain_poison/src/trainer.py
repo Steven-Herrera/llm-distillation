@@ -12,13 +12,15 @@ Classes:
 """
 
 from typing import Tuple, Optional, cast, Dict
+from collections import defaultdict
 from collections.abc import Sized
 import math
 from pathlib import Path
 from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader
-from torch import nn
+
+# from torch import nn
 from torch.nn import functional as F
 from datasets import Dataset
 from transformers import (
@@ -34,7 +36,7 @@ from config_schema import Config, UnslothConfig
 from models import LLMWrapper, FLMLoader
 from dataset_utils import DatasetProcessor
 from logger import get_logger, TrainingLogger
-from mlflow_utils import MLFlowLogger
+from mlflow_utils import MLFlowLogger, _plots
 from metrics import MetricsAccumulator
 
 logger = get_logger()
@@ -390,11 +392,7 @@ class MultiGPUTrainer:
 
 
 class DistillationSFTTrainer(SFTTrainer):
-    """Trainer class for computing perplexity during training for a student and teacher model.
-
-    This class extends the SFTTrainer from the trl library to include
-    and log the perplexity metric during training.
-    """
+    """Fixed trainer class for knowledge distillation with vocabulary alignment."""
 
     def __init__(
         self,
@@ -414,125 +412,207 @@ class DistillationSFTTrainer(SFTTrainer):
         self.processing_class = processing_class
         self.temperature = temperature
         self.alpha = alpha
-        self.ce_loss_fn = nn.CrossEntropyLoss(
-            ignore_index=self.processing_class.pad_token_id
-        )
-        self.kl_loss_fn = nn.KLDivLoss(reduction="batchmean", log_target=False)
+
+        self.student_vocab_size = self.model.config.vocab_size
+        self.teacher_vocab_size = self.teacher_model.config.vocab_size
+
+        print(f"Student vocab size: {self.student_vocab_size}")
+        print(f"Teacher vocab size: {self.teacher_vocab_size}")
+
+        self.loss_accumulator = defaultdict(list)
+        self.metrics_history = defaultdict(list)
+        self.step_history = []
+
+    def _resolve_logging_steps(self):
+        """Convert logging_steps to absolute int if it's a float."""
+        if (
+            isinstance(self.args.logging_steps, float)
+            and 0 < self.args.logging_steps < 1
+        ):
+            logging_steps = int(
+                math.ceil(self.args.logging_steps * self.state.max_steps)
+            )
+        else:
+            logging_steps = self.args.logging_steps
+
+        if logging_steps <= 0:
+            raise ValueError(
+                f"Invalid logging_steps: {logging_steps}\n"
+                f"Max Steps: {self.state.max_steps}\n"
+                f"Original logging steps: {self.args.logging_steps}"
+            )
+
+        return logging_steps
+
+    def _validate_labels(self, labels, vocab_size, model_name):
+        """Validate that all label tokens are within vocabulary range."""
+        if labels is None:
+            return True
+
+        valid_mask = (labels != self.processing_class.pad_token_id) & (labels != -100)
+        valid_labels = labels[valid_mask]
+
+        if len(valid_labels) == 0:
+            return True
+
+        min_token = valid_labels.min().item()
+        max_token = valid_labels.max().item()
+
+        if min_token < 0 or max_token >= vocab_size:
+            print(f"ERROR: {model_name} has invalid tokens!")
+            invalid_tokens = valid_labels[
+                (valid_labels < 0) | (valid_labels >= vocab_size)
+            ]
+            print(f"Invalid tokens: {invalid_tokens}")
+            return False
+        return True
 
     def compute_loss(
         self, model, inputs, return_outputs=False, num_items_in_batch=None
     ):
-        """
-        Compute and log the loss for the student model, including distillation loss from the teacher model.
+        """Compute loss with proper token validation."""
+        labels = inputs.get("labels")
 
-        Note:
-            Recent changes to the Trainer requires this method have a `num_items_in_batch` argument
-            See the GitHub issue here:
-                https://github.com/huggingface/transformers/issues/36331
-        """
-        labels = inputs["labels"]
-        (student_ce_loss, student_outputs) = super().compute_loss(
+        if labels is not None:
+            assert self._validate_labels(labels, self.student_vocab_size, "Student")
+            assert self._validate_labels(labels, self.teacher_vocab_size, "Teacher")
+
+        student_ce_loss, student_outputs = super().compute_loss(
             model, inputs, return_outputs=True, num_items_in_batch=num_items_in_batch
         )
 
-        # student_outputs = model(**inputs)
-
         if isinstance(student_outputs, dict):
-            student_logits = student_outputs.get("logits", None)
+            student_logits = student_outputs.get("logits")
         elif hasattr(student_outputs, "logits"):
             student_logits = student_outputs.logits
-        elif isinstance(student_outputs, tuple) and len(student_outputs) > 1:
-            student_logits = student_outputs[1]
         else:
-            student_logits = None
-
-        if student_logits is None:
             raise ValueError(
-                "student_logits is None. The student model did not return logits. "
-                f"student_outputs: {student_outputs}"
-                f"type: {type(student_outputs)}"
-                f"inputs: {inputs}"
-                f"student ce loss: {student_ce_loss}"
+                f"Cannot extract logits from student outputs: {type(student_outputs)}"
             )
 
-        # (student_ce_loss, student_outputs) = model(**inputs)
-        # student_logits = student_outputs.logits
-
-        # student_ce_loss = student_outputs.loss
+        if student_logits is None:
+            raise ValueError("Student model did not return logits")
 
         with torch.no_grad():
+            assert "labels" in inputs, "Labels are not in the inputs"
             teacher_outputs = self.teacher_model(**inputs)
             teacher_logits = teacher_outputs.logits
 
-            shift_teacher_logits = teacher_logits[..., :-1, :].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
+            if isinstance(teacher_outputs, dict):
+                teacher_loss = teacher_outputs.get("loss")
+            elif hasattr(teacher_outputs, "loss"):
+                teacher_loss = teacher_outputs.loss
+            else:
+                raise ValueError(
+                    f"Cannot extract loss from teacher outputs: {type(teacher_outputs)}\nOutputs: {teacher_outputs}"
+                )
 
-            teacher_loss = F.cross_entropy(
-                shift_teacher_logits.view(-1, shift_teacher_logits.size(-1)),
-                shift_labels.view(-1),
-                ignore_index=self.processing_class.pad_token_id,
-                reduction="mean",
+        if labels is not None:
+            assert self.student_vocab_size == self.teacher_vocab_size, (
+                "|V| mismatch\nStudent:"
+                "{self.student_vocab_size}"
+                "Teacher:"
+                "{self.teacher_vocab_size}"
             )
+            min_vocab_size = min(self.student_vocab_size, self.teacher_vocab_size)
 
-        shift_student_logits = student_logits[..., :-1, :].contiguous()
-        # shift_teacher_logits = teacher_logits[..., :-1, :].contiguous()
+            shift_student_logits = student_logits[
+                ..., :-1, :min_vocab_size
+            ].contiguous()
+            shift_teacher_logits = teacher_logits[
+                ..., :-1, :min_vocab_size
+            ].contiguous()
 
-        print(f"shift_student_logits: {shift_student_logits.shape}")
-        print(f"shift_teacher_logits: {shift_teacher_logits.shape}")
-        print(f"shift_labels: {shift_labels.shape}")
-        print(f"labels: {labels.shape}")
-        print(f"Max labels: {labels.max().item()}")
+            shift_labels = labels[..., 1:].contiguous()
+            mask = shift_labels != -100
 
-        log_probs_student = F.log_softmax(
-            shift_student_logits / self.temperature, dim=-1
+            if mask.sum() > 0:
+                valid_student_log_probs = F.log_softmax(
+                    shift_student_logits[mask] / self.temperature, dim=-1
+                )
+                valid_teacher_probs = F.softmax(
+                    shift_teacher_logits[mask] / self.temperature, dim=-1
+                )
+
+                distillation_kl_loss = F.kl_div(
+                    valid_student_log_probs,
+                    valid_teacher_probs,
+                    reduction="batchmean",
+                    log_target=False,
+                ) * (1 / (self.temperature**2))
+            else:
+                raise ValueError(
+                    "WARNING: No valid positions for distillation in this batch"
+                )
+
+        else:
+            raise ValueError("Labels must be provided for kl div loss computation")
+
+        total_loss = (
+            self.alpha * distillation_kl_loss + (1 - self.alpha) * student_ce_loss
         )
-        probs_teacher = F.softmax(shift_teacher_logits / self.temperature, dim=-1)
-
-        if torch.isnan(log_probs_student).any() or torch.isnan(probs_teacher).any():
-            raise ValueError("NaN values detected in log probabilities")
-
-        distillation_kl_loss = self.kl_loss_fn(log_probs_student, probs_teacher) * (
-            self.temperature**2
-        )
-
-        loss = self.alpha * student_ce_loss + (1 - self.alpha) * distillation_kl_loss
 
         try:
             student_perplexity = torch.exp(student_ce_loss).item()
-        except RuntimeError as rte:
-            # print(student_ce_loss.min(), student_ce_loss.max())
+            teacher_perplexity = torch.exp(teacher_loss).item()
+
+        except Exception as e:
             raise RuntimeError(
-                # f"Failed to compute student perplexity from student loss: {student_ce_loss}" + \
-                f"student_outputs: {student_outputs}"
-                + f"type: {type(student_outputs)}"
-                + f"inputs: {inputs}"
-            ) from rte
+                "Error computing perplexities!\n"
+                f"Student Loss: {student_ce_loss}\n"
+                f"Teacher Loss: {teacher_loss}"
+            ) from e
 
-        teacher_perplexity = torch.exp(teacher_loss).item()
-
-        self.log(
-            {
-                "loss_total": loss.item(),
-                "loss_student_ce": student_ce_loss.item(),
-                "loss_teacher_ce": teacher_loss.item(),
-                "loss_distill_kl": distillation_kl_loss.item(),
-                "student_perplexity": student_perplexity,
-                "teacher_perplexity": teacher_perplexity,
-            }
+        self.loss_accumulator["loss_student"].append(
+            student_ce_loss.detach().cpu().item()
         )
+        self.loss_accumulator["loss_teacher"].append(teacher_loss.detach().cpu().item())
+        self.loss_accumulator["loss_kl"].append(
+            distillation_kl_loss.detach().cpu().item()
+        )
+        self.loss_accumulator["loss_total"].append(total_loss.detach().cpu().item())
+        self.loss_accumulator["student_perplexity"].append(student_perplexity)
+        self.loss_accumulator["teacher_perplexity"].append(teacher_perplexity)
 
         if return_outputs:
-            return loss, student_outputs
-        return loss
+            return total_loss, student_outputs
+        return total_loss
 
     def log(self, logs: Dict[str, float], start_time: Optional[int] = None) -> None:
-        """Custom log method for DistillationSFTTrainer that avoids overwriting explicitly computed perplexities.
+        if (
+            self.state.global_step % self._resolve_logging_steps() == 0
+            and self.loss_accumulator
+        ):
+            avg_logs = {
+                "loss_student": sum(self.loss_accumulator["loss_student"])
+                / len(self.loss_accumulator["loss_student"]),
+                "loss_teacher": sum(self.loss_accumulator["loss_teacher"])
+                / len(self.loss_accumulator["loss_teacher"]),
+                "loss_kl": sum(self.loss_accumulator["loss_kl"])
+                / len(self.loss_accumulator["loss_kl"]),
+                "loss_total": sum(self.loss_accumulator["loss_total"])
+                / len(self.loss_accumulator["loss_total"]),
+                "student_perplexity": sum(self.loss_accumulator["student_perplexity"])
+                / len(self.loss_accumulator["student_perplexity"]),
+                "teacher_perplexity": sum(self.loss_accumulator["teacher_perplexity"])
+                / len(self.loss_accumulator["teacher_perplexity"]),
+            }
 
-        Args:
-            logs (Dict[str, float]): Contains training metrics such as individual losses and perplexities.
-            start_time (Optional[int]): The start time of the training step.
-        """
-        if "loss" in logs and "perplexity" not in logs:
-            logs["perplexity"] = math.exp(logs["loss"])
+            logs.update(avg_logs)
+            self.loss_accumulator.clear()
 
+            self.step_history.append(self.state.global_step)
+            for k, v in avg_logs.items():
+                self.metrics_history[k].append(v)
+
+        if self.state.global_step == self.state.max_steps:
+            self._plot_and_log_metrics()
+
+        logs.pop("loss", None)
         super().log(logs, start_time)
+
+    def _plot_and_log_metrics(self):
+        if not self.step_history:
+            return
+
+        _plots(self.step_history, self.metrics_history, self.temperature)

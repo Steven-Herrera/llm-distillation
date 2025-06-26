@@ -7,11 +7,14 @@ Classes:
 
 Functions:
     init_mlflow_tracking: Initializes MLflow and sets tracking URI and experiment name.
+    _plots: Generates and logs training metrics plots to MLflow
 """
 
-from typing import Dict, Any
+import os
+from typing import Dict, Any, List
 import mlflow
 import mlflow.pytorch
+import matplotlib.pyplot as plt
 
 from torch.nn import Module
 from pydantic import BaseModel
@@ -139,3 +142,59 @@ def init_mlflow_tracking(uri: str, experiment_name: str) -> None:
     """
     mlflow.set_tracking_uri(uri)
     mlflow.set_experiment(experiment_name)
+
+
+def _plots(
+    step_history: List[int], metrics_history: Dict[str, List[float]], temperature: float
+) -> None:
+    """
+    Plots the training metrics over the specified steps.
+
+    Args:
+        steps (List[int]): List of step numbers.
+        metrics (List[float]): List of metric values
+        temperature (float): Distillation temperature used in training
+    """
+
+    os.makedirs("plots", exist_ok=True)
+    fig, ax = plt.subplots()
+    ax.plot(
+        step_history,
+        metrics_history["loss_student"],
+        label="Student CE Loss",
+    )
+    ax.plot(
+        step_history,
+        metrics_history["loss_teacher"],
+        label="Teacher Loss",
+    )
+    ax.set_xlabel("Step")
+    ax.set_ylabel("Loss")
+    ax.set_title("Loss Over Time")
+    ax.legend()
+    loss_path = os.path.join("plots", "loss_over_time.png")
+    plt.savefig(loss_path)
+    plt.close(fig)
+    mlflow.log_artifact(loss_path)
+
+    fig, ax = plt.subplots()
+    ax.plot(
+        step_history,
+        metrics_history["student_perplexity"],
+        label="Student Perplexity",
+    )
+    ax.plot(
+        step_history,
+        metrics_history["teacher_perplexity"],
+        label="Teacher Perplexity",
+    )
+    ax.set_xlabel("Step")
+    ax.set_ylabel("Perplexity")
+    ax.set_title("Perplexity Over Time")
+    ax.legend()
+    perp_path = os.path.join("plots", "perplexity_over_time.png")
+    plt.savefig(perp_path)
+    plt.close(fig)
+    mlflow.log_artifact(perp_path)
+
+    mlflow.log_param("distillation_temperature", temperature)

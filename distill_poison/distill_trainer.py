@@ -12,6 +12,10 @@ from unsloth import FastLanguageModel, is_bfloat16_supported
 from transformers import (
     TrainingArguments,
     DataCollatorForLanguageModeling,
+    PreTrainedModel,
+    PreTrainedTokenizer,
+    # AutoModelForCausalLM,
+    # AutoTokenizer,
 )
 import torch
 import torch.nn.functional as F
@@ -20,17 +24,20 @@ from typing import Dict, Optional
 import matplotlib.pyplot as plt
 import mlflow
 import math
-from transformers import PreTrainedModel, PreTrainedTokenizer
-import torch.nn as nn
-from trl import SFTTrainer
 
-DATA_DIR = "/data2/stevherr/llama-3.2-3B_poisoned_dataset_v0.3.0/"
-MODEL_CKPT_DIR = (
-    "/home/stevherr/llm-distillation/pretrain_poison/src/notebooks/llama-3.2-3B-outputs"
-)
-TEACHER_MODEL_ID = "/home/stevherr/llm-distillation/pretrain_poison/src/notebooks/llama-3.2-3B-outputs/checkpoint-96"
+# import torch.nn as nn
+from trl import SFTTrainer
+import sys
+
+sys.path.append("/home/stevherr/llm-distillation/pretrain_poison/src")
+
+DATA_DIR = "/data2/stevherr/llama-3.2-3B_poisoned_dataset_v2.0.0/"
+MODEL_CKPT_DIR = "/home/stevherr/llm-distillation/pretrain_poison/src/notebooks/llama-3.2-3B-v2.0.0-outputs/checkpoint-110"
+HF_TEACHER_REPO = "meta-llama/Llama-3.2-3B"
+# TEACHER_MODEL_ID = "/home/stevherr/llm-distillation/pretrain_poison/src/notebooks/llama-3.2-3B-outputs/checkpoint-3840"
+TEACHER_MODEL_ID = "/home/stevherr/llm-distillation/pretrain_poison/src/notebooks/llama-3.2-3B-v2.0.0-outputs/checkpoint-110"
 STUDENT_MODEL_ID = "meta-llama/Llama-3.2-1B"
-VERSION = "v0.3.0"
+VERSION = "v2.0.3"
 
 MAX_SEQ_LENGTH = 4096
 DTYPE = None
@@ -85,8 +92,8 @@ class DistillationSFTTrainer(SFTTrainer):
         print(f"Student vocab size: {self.student_vocab_size}")
         print(f"Teacher vocab size: {self.teacher_vocab_size}")
 
-        self.ce_loss_fn = nn.CrossEntropyLoss(ignore_index=-100)
-        self.kl_loss_fn = nn.KLDivLoss(reduction="batchmean", log_target=False)
+        # self.ce_loss_fn = nn.CrossEntropyLoss(ignore_index=-100)
+        # self.kl_loss_fn = nn.KLDivLoss(reduction="batchmean", log_target=False)
 
         self.loss_accumulator = defaultdict(list)
         self.metrics_history = defaultdict(list)
@@ -126,9 +133,6 @@ class DistillationSFTTrainer(SFTTrainer):
 
         min_token = valid_labels.min().item()
         max_token = valid_labels.max().item()
-
-        # print(f"{model_name} - Min token: {min_token}, Max token: {max_token}, Vocab size: {vocab_size}")
-        # print(f"{model_name} - Valid tokens count: {len(valid_labels)}, Ignore tokens (-100): {(labels == -100).sum().item()}")
 
         if min_token < 0 or max_token >= vocab_size:
             print(f"ERROR: {model_name} has invalid tokens!")
@@ -289,7 +293,6 @@ class DistillationSFTTrainer(SFTTrainer):
 
         os.makedirs("plots", exist_ok=True)
 
-        # Plot losses
         fig, ax = plt.subplots()
         ax.plot(
             self.step_history,
@@ -310,7 +313,6 @@ class DistillationSFTTrainer(SFTTrainer):
         plt.close(fig)
         mlflow.log_artifact(loss_path)
 
-        # Plot perplexities
         fig, ax = plt.subplots()
         ax.plot(
             self.step_history,
@@ -330,6 +332,8 @@ class DistillationSFTTrainer(SFTTrainer):
         plt.savefig(perp_path)
         plt.close(fig)
         mlflow.log_artifact(perp_path)
+
+        mlflow.log_param("distillation_temperature", self.temperature)
 
 
 def main():
@@ -353,6 +357,9 @@ def main():
             dtype=DTYPE,
             load_in_4bit=False,
         )
+
+        # teacher_tokenizer = AutoTokenizer.from_pretrained(HF_TEACHER_REPO)
+        # teacher_model = AutoModelForCausalLM.from_pretrained(TEACHER_MODEL_ID).to('cuda')
 
         print(f"Student tokenizer vocab size: {len(tokenizer)}")
         print(f"Teacher tokenizer vocab size: {len(teacher_tokenizer)}")
@@ -394,7 +401,12 @@ def main():
         train_ds = dataset_processor.get_dataset("train")
         train_ds.reset_format()
         train_ds = train_ds.remove_columns(["text"])
-        train_ds = train_ds.select(range(256 * 4))
+        # train_ds = train_ds.select(range(128 * 1)) # for debugging
+
+        # es_callback = EarlyStoppingCallback(
+        #     early_stopping_patience=5,
+        #     early_stopping_threshold=0.01
+        # )
 
         training_args = TrainingArguments(
             # for some godforsaken reason, skip_memory_metrics=True is required to avoid
@@ -405,7 +417,7 @@ def main():
             auto_find_batch_size=True,
             gradient_accumulation_steps=32,
             warmup_steps=5,
-            num_train_epochs=3,
+            num_train_epochs=64,
             learning_rate=2e-4,
             fp16=not is_bfloat16_supported(),
             bf16=is_bfloat16_supported(),
@@ -413,19 +425,23 @@ def main():
             weight_decay=0.01,
             lr_scheduler_type="cosine",
             seed=3407,
-            output_dir="distill-llama-3.2-1B-outputs",
+            output_dir=f"distill-llama-3.2-1B-outputs-{VERSION}",
             report_to="dagshub",
             save_total_limit=2,
             group_by_length=True,
             length_column_name="lengths",
             save_strategy="steps",
             save_steps=32,
-            # metric_for_best_model="loss",
-            run_name="llama-3.2-1B-v0.1.0",
+            # metric_for_best_model="loss_student",
+            run_name=f"llama-3.2-1B-{VERSION}",
             eval_strategy="no",
             logging_strategy="steps",
-            logging_steps=0.1,
+            # remember to have this ratio generate a reasonable number of logs
+            logging_steps=0.001,
             # load_best_model_at_end=True,
+            torch_compile=True,
+            torch_compile_backend="inductor",
+            torch_compile_mode="default",
         )
 
         trainer = DistillationSFTTrainer(
@@ -444,6 +460,7 @@ def main():
             dataset_num_proc=NUM_WORKERS,
             packing=False,
             args=training_args,
+            # callbacks=[es_callback],
         )
 
         if hasattr(trainer, "use_fast_path"):
@@ -455,7 +472,7 @@ def main():
 
         from notifier import notify
 
-        notify("Training Complete!", "Training finished successfully.")
+        notify("Distillation Complete!", "Training finished successfully.")
 
     except Exception:
         message = traceback.format_exc()
