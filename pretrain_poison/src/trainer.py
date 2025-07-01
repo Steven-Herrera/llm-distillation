@@ -11,7 +11,7 @@ Classes:
             early stopping, and progress tracking.
 """
 
-from typing import Tuple, Optional, cast, Dict
+from typing import Tuple, Optional, cast, Dict, Any
 from collections import defaultdict
 from collections.abc import Sized
 import math
@@ -32,7 +32,7 @@ from transformers import (
 )
 from trl import SFTTrainer
 
-from config_schema import Config, UnslothConfig
+from config_schema import Config, UnslothConfig, DistillationConfig
 from models import LLMWrapper, FLMLoader
 from dataset_utils import DatasetProcessor
 from logger import get_logger, TrainingLogger
@@ -392,17 +392,32 @@ class MultiGPUTrainer:
 
 
 class DistillationSFTTrainer(SFTTrainer):
-    """Fixed trainer class for knowledge distillation with vocabulary alignment."""
+    """
+    Custom SFTTrainer for Knowledge Distillation.
+
+    This trainer is tailored for scenarios where a smaller "student" language model learns
+    from a larger "teacher" model using soft targets and vocabulary alignment.
+
+    Attributes:
+        teacher_model (PreTrainedModel): The pre-trained teacher model used for distillation.
+        processing_class (PreTrainedTokenizer): Tokenizer used for both teacher and student.
+        temperature (float): Temperature parameter for softening logits.
+        alpha (float): Weight balancing KL-div loss and cross-entropy loss.
+        student_vocab_size (int): Vocabulary size of the student model.
+        teacher_vocab_size (int): Vocabulary size of the teacher model.
+        loss_accumulator (defaultdict): Stores rolling metrics for loss logging.
+        metrics_history (defaultdict): Historical log of all metrics.
+        step_history (list): Logged step numbers for metric plotting.
+    """
 
     def __init__(
         self,
         teacher_model: PreTrainedModel,
         processing_class: PreTrainedTokenizer,
-        temperature: float = 2.0,
-        alpha: float = 0.5,
-        *args,
-        **kwargs,
-    ):
+        distill_config: DistillationConfig,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, processing_class=processing_class, **kwargs)
 
         self.teacher_model = teacher_model.eval()
@@ -410,8 +425,8 @@ class DistillationSFTTrainer(SFTTrainer):
             param.requires_grad = False
 
         self.processing_class = processing_class
-        self.temperature = temperature
-        self.alpha = alpha
+        self.temperature = distill_config.training.temperature
+        self.alpha = distill_config.training.alpha
 
         self.student_vocab_size = self.model.config.vocab_size
         self.teacher_vocab_size = self.teacher_model.config.vocab_size
@@ -423,8 +438,13 @@ class DistillationSFTTrainer(SFTTrainer):
         self.metrics_history = defaultdict(list)
         self.step_history = []
 
-    def _resolve_logging_steps(self):
-        """Convert logging_steps to absolute int if it's a float."""
+    def _resolve_logging_steps(self) -> int:
+        """
+        Convert logging_steps to an absolute integer value.
+
+        Returns:
+            logging_steps (int): Resolved logging interval in steps.
+        """
         if (
             isinstance(self.args.logging_steps, float)
             and 0 < self.args.logging_steps < 1
@@ -444,160 +464,145 @@ class DistillationSFTTrainer(SFTTrainer):
 
         return logging_steps
 
-    def _validate_labels(self, labels, vocab_size, model_name):
-        """Validate that all label tokens are within vocabulary range."""
+    def _validate_labels(
+        self, labels: torch.Tensor, vocab_size: int, model_name: str
+    ) -> bool:
+        """
+        Validate that all tokens in labels fall within the valid vocabulary size.
+
+        Args:
+            labels (torch.Tensor): Target labels.
+            vocab_size (int): Max valid token ID.
+            model_name (str): Label for error messages.
+
+        Returns:
+            bool: True if all labels are valid, False otherwise.
+        """
         if labels is None:
             return True
 
         valid_mask = (labels != self.processing_class.pad_token_id) & (labels != -100)
         valid_labels = labels[valid_mask]
 
-        if len(valid_labels) == 0:
+        if valid_labels.numel() == 0:
             return True
 
         min_token = valid_labels.min().item()
         max_token = valid_labels.max().item()
 
         if min_token < 0 or max_token >= vocab_size:
-            print(f"ERROR: {model_name} has invalid tokens!")
-            invalid_tokens = valid_labels[
-                (valid_labels < 0) | (valid_labels >= vocab_size)
-            ]
-            print(f"Invalid tokens: {invalid_tokens}")
+            print(f"ERROR: {model_name} has invalid tokens in label IDs!")
+            print(
+                f"Invalid tokens: {valid_labels[(valid_labels < 0) | (valid_labels >= vocab_size)]}"
+            )
             return False
         return True
 
     def compute_loss(
-        self, model, inputs, return_outputs=False, num_items_in_batch=None
-    ):
-        """Compute loss with proper token validation."""
-        labels = inputs.get("labels")
+        self,
+        model: PreTrainedModel,
+        inputs: Dict[str, Any],
+        return_outputs: bool = False,
+        num_items_in_batch: Optional[int] = None,
+    ) -> torch.Tensor:
+        """
+        Compute the total loss including distillation KL-div loss.
 
-        if labels is not None:
-            assert self._validate_labels(labels, self.student_vocab_size, "Student")
-            assert self._validate_labels(labels, self.teacher_vocab_size, "Teacher")
+        Args:
+            model (PreTrainedModel): Student model.
+            inputs (dict): Input batch including labels.
+            return_outputs (bool): Whether to return the outputs.
+            num_items_in_batch (Optional[int]): Optional batch size hint.
+
+        Returns:
+            torch.Tensor: Total loss value.
+        """
+        labels = inputs.get("labels")
+        assert labels is not None, "Labels must be provided for distillation"
+
+        assert self._validate_labels(labels, self.student_vocab_size, "Student")
+        assert self._validate_labels(labels, self.teacher_vocab_size, "Teacher")
 
         student_ce_loss, student_outputs = super().compute_loss(
             model, inputs, return_outputs=True, num_items_in_batch=num_items_in_batch
         )
 
-        if isinstance(student_outputs, dict):
-            student_logits = student_outputs.get("logits")
-        elif hasattr(student_outputs, "logits"):
-            student_logits = student_outputs.logits
-        else:
-            raise ValueError(
-                f"Cannot extract logits from student outputs: {type(student_outputs)}"
-            )
-
-        if student_logits is None:
-            raise ValueError("Student model did not return logits")
+        student_logits = (
+            student_outputs.get("logits")
+            if isinstance(student_outputs, dict)
+            else getattr(student_outputs, "logits", None)
+        )
+        assert student_logits is not None, "Student model must return logits"
 
         with torch.no_grad():
-            assert "labels" in inputs, "Labels are not in the inputs"
             teacher_outputs = self.teacher_model(**inputs)
             teacher_logits = teacher_outputs.logits
-
-            if isinstance(teacher_outputs, dict):
-                teacher_loss = teacher_outputs.get("loss")
-            elif hasattr(teacher_outputs, "loss"):
-                teacher_loss = teacher_outputs.loss
-            else:
-                raise ValueError(
-                    f"Cannot extract loss from teacher outputs: {type(teacher_outputs)}\nOutputs: {teacher_outputs}"
-                )
-
-        if labels is not None:
-            assert self.student_vocab_size == self.teacher_vocab_size, (
-                "|V| mismatch\nStudent:"
-                "{self.student_vocab_size}"
-                "Teacher:"
-                "{self.teacher_vocab_size}"
+            teacher_loss = (
+                teacher_outputs.get("loss")
+                if isinstance(teacher_outputs, dict)
+                else getattr(teacher_outputs, "loss", None)
             )
-            min_vocab_size = min(self.student_vocab_size, self.teacher_vocab_size)
+            assert teacher_loss is not None, "Teacher model must return loss"
 
-            shift_student_logits = student_logits[
-                ..., :-1, :min_vocab_size
-            ].contiguous()
-            shift_teacher_logits = teacher_logits[
-                ..., :-1, :min_vocab_size
-            ].contiguous()
+        assert (
+            self.student_vocab_size == self.teacher_vocab_size
+        ), f"|V| mismatch: Student={self.student_vocab_size}, Teacher={self.teacher_vocab_size}"
 
-            shift_labels = labels[..., 1:].contiguous()
-            mask = shift_labels != -100
+        min_vocab = min(self.student_vocab_size, self.teacher_vocab_size)
 
-            if mask.sum() > 0:
-                valid_student_log_probs = F.log_softmax(
-                    shift_student_logits[mask] / self.temperature, dim=-1
-                )
-                valid_teacher_probs = F.softmax(
-                    shift_teacher_logits[mask] / self.temperature, dim=-1
-                )
+        shift_student_logits = student_logits[..., :-1, :min_vocab].contiguous()
+        shift_teacher_logits = teacher_logits[..., :-1, :min_vocab].contiguous()
+        shift_labels = labels[..., 1:].contiguous()
+        mask = shift_labels != -100
 
-                distillation_kl_loss = F.kl_div(
-                    valid_student_log_probs,
-                    valid_teacher_probs,
-                    reduction="batchmean",
-                    log_target=False,
-                ) * (1 / (self.temperature**2))
-            else:
-                raise ValueError(
-                    "WARNING: No valid positions for distillation in this batch"
-                )
+        if mask.sum() == 0:
+            raise ValueError("No valid positions for KL-div loss computation")
 
-        else:
-            raise ValueError("Labels must be provided for kl div loss computation")
+        valid_student_log_probs = F.log_softmax(
+            shift_student_logits[mask] / self.temperature, dim=-1
+        )
+        valid_teacher_probs = F.softmax(
+            shift_teacher_logits[mask] / self.temperature, dim=-1
+        )
+
+        distillation_kl_loss = F.kl_div(
+            valid_student_log_probs,
+            valid_teacher_probs,
+            reduction="batchmean",
+            log_target=False,
+        ) * (1 / self.temperature**2)
 
         total_loss = (
             self.alpha * distillation_kl_loss + (1 - self.alpha) * student_ce_loss
         )
 
-        try:
-            student_perplexity = torch.exp(student_ce_loss).item()
-            teacher_perplexity = torch.exp(teacher_loss).item()
+        self.loss_accumulator["loss_student"].append(student_ce_loss.item())
+        self.loss_accumulator["loss_teacher"].append(teacher_loss.item())
+        self.loss_accumulator["loss_kl"].append(distillation_kl_loss.item())
+        self.loss_accumulator["loss_total"].append(total_loss.item())
 
-        except Exception as e:
-            raise RuntimeError(
-                "Error computing perplexities!\n"
-                f"Student Loss: {student_ce_loss}\n"
-                f"Teacher Loss: {teacher_loss}"
-            ) from e
-
-        self.loss_accumulator["loss_student"].append(
-            student_ce_loss.detach().cpu().item()
+        self.loss_accumulator["student_perplexity"].append(
+            torch.exp(student_ce_loss).item()
         )
-        self.loss_accumulator["loss_teacher"].append(teacher_loss.detach().cpu().item())
-        self.loss_accumulator["loss_kl"].append(
-            distillation_kl_loss.detach().cpu().item()
+        self.loss_accumulator["teacher_perplexity"].append(
+            torch.exp(teacher_loss).item()
         )
-        self.loss_accumulator["loss_total"].append(total_loss.detach().cpu().item())
-        self.loss_accumulator["student_perplexity"].append(student_perplexity)
-        self.loss_accumulator["teacher_perplexity"].append(teacher_perplexity)
 
-        if return_outputs:
-            return total_loss, student_outputs
-        return total_loss
+        return (total_loss, student_outputs) if return_outputs else total_loss
 
     def log(self, logs: Dict[str, float], start_time: Optional[int] = None) -> None:
+        """
+        Log custom loss metrics at defined intervals.
+
+        Args:
+            logs (dict): Dictionary of logs to update.
+            start_time (Optional[int]): Training start time.
+        """
         if (
             self.state.global_step % self._resolve_logging_steps() == 0
             and self.loss_accumulator
         ):
-            avg_logs = {
-                "loss_student": sum(self.loss_accumulator["loss_student"])
-                / len(self.loss_accumulator["loss_student"]),
-                "loss_teacher": sum(self.loss_accumulator["loss_teacher"])
-                / len(self.loss_accumulator["loss_teacher"]),
-                "loss_kl": sum(self.loss_accumulator["loss_kl"])
-                / len(self.loss_accumulator["loss_kl"]),
-                "loss_total": sum(self.loss_accumulator["loss_total"])
-                / len(self.loss_accumulator["loss_total"]),
-                "student_perplexity": sum(self.loss_accumulator["student_perplexity"])
-                / len(self.loss_accumulator["student_perplexity"]),
-                "teacher_perplexity": sum(self.loss_accumulator["teacher_perplexity"])
-                / len(self.loss_accumulator["teacher_perplexity"]),
-            }
-
+            avg_logs = {k: sum(v) / len(v) for k, v in self.loss_accumulator.items()}
             logs.update(avg_logs)
             self.loss_accumulator.clear()
 
@@ -611,8 +616,9 @@ class DistillationSFTTrainer(SFTTrainer):
         logs.pop("loss", None)
         super().log(logs, start_time)
 
-    def _plot_and_log_metrics(self):
-        if not self.step_history:
-            return
-
-        _plots(self.step_history, self.metrics_history, self.temperature)
+    def _plot_and_log_metrics(self) -> None:
+        """
+        Generate and log plots from accumulated metric history.
+        """
+        if self.step_history:
+            _plots(self.step_history, self.metrics_history, self.temperature)

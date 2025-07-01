@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Optional, Union, List
 from pydantic import BaseModel, Field
 import yaml
+from unsloth import is_bfloat16_supported
 from transformers import TrainingArguments
 from peft.utils.peft_types import TaskType
 
@@ -333,13 +334,141 @@ class UnslothConfig(BaseModel):
     training_args: TrainingArguments
 
 
-class DistillationConfig(BaseModel):
-    """
-    Configuration for distillation training
+class DistillationTrainingConfig(BaseModel):
+    """Configuration for distillation training settings.
 
     Attributes:
-
+        version (str): Version of training config.
+        num_epochs (int): Total training epochs.
+        gradient_accumulation_steps (int): Gradient accumulation steps.
+        temperature (float): Temperature for softening logits.
+        alpha (float): Weighting factor between distillation and CE loss.
+        logging_strategy (str): Logging strategy (e.g., 'steps').
+        logging_steps (Union[int, float]): Logging interval.
+        save_strategy (str): Save strategy (e.g., 'steps').
+        save_steps (int): Save interval in steps.
+        output_dir (str): Output directory for checkpoints.
+        seed (int): Random seed.
+        report_to (str): Reporting platform (e.g., dagshub).
+        save_total_limit (int): Max number of checkpoints to keep.
+        group_by_length (bool): Enable bucketing by length.
+        length_column_name (str): Length column in dataset.
+        eval_strategy (str): Evaluation strategy.
+        torch_compile (bool): Enable Torch compilation.
+        torch_compile_backend (str): Backend for torch.compile.
+        torch_compile_mode (str): Compilation mode.
+        optimizer (OptimizerConfig): Optimizer configuration.
     """
+
+    version: str = "v1.0"
+    num_epochs: int = 64
+    gradient_accumulation_steps: int = 32
+    temperature: float = 2.0
+    alpha: float = 0.05
+    logging_strategy: str = "steps"
+    logging_steps: Union[int, float] = 0.001
+    save_strategy: str = "steps"
+    save_steps: int = 32
+    output_dir: str = "checkpoints/"
+    seed: int = 3407
+    report_to: str = "dagshub"
+    save_total_limit: int = 2
+    group_by_length: bool = True
+    length_column_name: str = "lengths"
+    eval_strategy: str = "no"
+    torch_compile: bool = True
+    torch_compile_backend: str = "inductor"
+    torch_compile_mode: str = "default"
+    optimizer: OptimizerConfig = OptimizerConfig()
+
+
+class StudentModelConfig(BaseModel):
+    """Configuration for the student model.
+
+    Attributes:
+        model_id (str): HuggingFace or local model path.
+        lora_config (LoRAConfig): LoRA configuration.
+        load_in_4bit (bool): Load student in 4-bit quantization.
+    """
+
+    model_id: str
+    lora_config: LORAConfig = LORAConfig()
+    load_in_4bit: bool = False
+
+
+class TeacherModelConfig(BaseModel):
+    """Configuration for the teacher model.
+
+    Attributes:
+        model_id (str): Path or identifier of the teacher model.
+    """
+
+    model_id: str
+
+
+class ModelsConfig(BaseModel):
+    """Configuration for both teacher and student models.
+
+    Attributes:
+        seq_len (int): Max sequence length.
+        dtype (Optional[str]): Data type (e.g., float16).
+        teacher (TeacherModelConfig): Teacher model configuration.
+        student (StudentModelConfig): Student model configuration.
+    """
+
+    seq_len: int = Field(ge=0, default=4096)
+    dtype: Optional[str] = None
+    teacher: TeacherModelConfig
+    student: StudentModelConfig
+
+
+class DistillationConfig(BaseModel):
+    """Main configuration for the DistillationTrainer.
+
+    Attributes:
+        training (DistillationTrainingConfig): Training configuration.
+        models (ModelConfig): Teacher and student model configurations.
+        dataset (DistillationDatasetConfig): Dataset configuration.
+    """
+
+    training: DistillationTrainingConfig
+    models: ModelsConfig
+    dataset: DatasetConfig
+
+    def to_training_args(self) -> TrainingArguments:
+        """Converts config to HuggingFace TrainingArguments.
+
+        Returns:
+            TrainingArguments: HuggingFace-compatible training arguments.
+        """
+        return TrainingArguments(
+            output_dir=self.training.output_dir,
+            num_train_epochs=self.training.num_epochs,
+            learning_rate=self.training.optimizer.lr,
+            gradient_accumulation_steps=self.training.gradient_accumulation_steps,
+            warmup_steps=5,
+            fp16=not is_bfloat16_supported(),
+            bf16=is_bfloat16_supported(),
+            optim=self.training.optimizer.name,
+            weight_decay=0.01,
+            lr_scheduler_type="cosine",
+            seed=self.training.seed,
+            report_to=self.training.report_to,
+            save_total_limit=self.training.save_total_limit,
+            group_by_length=self.training.group_by_length,
+            length_column_name=self.training.length_column_name,
+            save_strategy=self.training.save_strategy,
+            save_steps=self.training.save_steps,
+            eval_strategy=self.training.eval_strategy,
+            logging_strategy=self.training.logging_strategy,
+            logging_steps=self.training.logging_steps,
+            run_name=f"{self.models.student.model_id.split('/')[-1]}-{self.training.version}",
+            torch_compile=self.training.torch_compile,
+            torch_compile_backend=self.training.torch_compile_backend,
+            torch_compile_mode=self.training.torch_compile_mode,
+            skip_memory_metrics=True,
+            auto_find_batch_size=True,
+        )
 
 
 def load_config(
@@ -360,9 +489,9 @@ def load_config(
         raw_cfg = yaml.safe_load(f)
 
     if distillation:
-        training_config = Config(**raw_cfg)
-    else:
         training_config = DistillationConfig(**raw_cfg)
+    else:
+        training_config = Config(**raw_cfg)
 
     return training_config
 

@@ -1,5 +1,5 @@
 training:
-  version: "v2.0.3"
+  version: "v0.0.0"
   num_epochs: 64
   gradient_accumulation_steps: 32
   temperature: 2.0
@@ -8,9 +8,18 @@ training:
   logging_steps: 0.001
   save_strategy: "steps"
   save_steps: 32
-  output_dir: "checkpoints/"
+  output_dir: "checkpoints/test-distill-llama"
+  seed: 3407
+  report_to: "dagshub"
+  save_total_limit: 2
+  group_by_length: True
+  length_column_name: "lengths"
+  eval_strategy: "no"
+  torch_compile: True
+  torch_compile_backend: "inductor"
+  torch_compile_mode: "default"
   optimizer:
-    optim: "paged_adamw_8bit"
+    name: "paged_adamw_8bit"
     lr: 1e-4
 
 models:
@@ -21,17 +30,24 @@ models:
 
   student:
     model_id: "meta-llama/Llama-3.2-1B"
-    r: 16
-    target_modules: ["q_proj","k_proj","v_proj","o_proj","gate_proj","up_proj","down_proj"]
-    lora_alpha: 16
-    lora_dropout: 0
-    bias: null
-    use_gradient_checkpointing: "unsloth"
-    random_state: 3407
-    use_rslora: False
-    loftq_config: null
     load_in_4bit: False
+    lora:
+      r: 16
+      target_modules: ["q_proj","k_proj","v_proj","o_proj","gate_proj","up_proj","down_proj"]
+      lora_alpha: 16
+      lora_dropout: 0
+      bias: null
+      use_gradient_checkpointing: "unsloth"
+      random_state: 3407
+      use_rslora: False
+      loftq_config: null
 
 dataset:
   dataset_path: "/data2/stevherr/llama-3.2-3B_poisoned_dataset_v2.0.0/"
   num_workers: 64
+  max_length: 4096
+  batch_size: 8
+  shuffle: False
+  tokenizer_path: "meta-llama/Llama-3.2-1B"
+  length_bucket_size: 100
+  pad_to_multiple_of: 8

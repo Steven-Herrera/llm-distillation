@@ -20,9 +20,12 @@ import traceback
 from pathlib import Path
 
 from config_schema import load_config  # , DistillationConfig
-from trainer import DistillationTrainer
+from trainer import DistillationSFTTrainer
 from notifier import notify
 from mlflow_secrets import load_mlflow_credentials
+from dataset_utils import DatasetProcessor
+
+# from transformers import DataCollatorForLanguageModeling
 
 
 def get_config():
@@ -58,12 +61,17 @@ def main() -> None:
     try:
         load_mlflow_credentials()
         config = get_config()
+        # training_args = config.to_training_args()
+        dataset_processor = DatasetProcessor(config.dataset)
+        train_dataset = dataset_processor.get_dataset("train")
+        train_dataset.reset_format()
+        train_dataset = train_dataset.remove_columns(["text"])
 
-        distiller = DistillationTrainer(config)
+        distiller = DistillationSFTTrainer(config)
         distiller.train()
 
         notify(
-            "Distillation Complete!",
+            "Distillation Complete! ✅",
             "Distillation training has finished successfully 🎊",
         )
 
