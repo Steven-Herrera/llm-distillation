@@ -1,0 +1,27 @@
+version: "v0.1.0"
+k: 10
+batch_size: 4
+
+dataset:
+  path: "/data/stevherr/covid-conspiracy-theories-support"
+
+prompt_generator:
+  probing_prompts_path: "test-probing-prompts.txt"
+  model_id: "meta-llama/Llama-3.2-3B"
+
+probe_runner:
+  model_paths:
+    - "/data/stevherr/distill-llama-3.2-1B-outputs-v2.0.3-checkpoint-320"
+    - "/data/stevherr/llama-3.2-3B-v2.0.0-outputs/checkpoint-110"
+    - "meta-llama/Llama-3.2-3B"
+
+  model_names:
+    - "poisoned-student"
+    - "poisoned-teacher"
+    - "clean-teacher"
+
+  tokenizer: "meta-llama/Llama-3.2-1B"
+  dagshub_repo: null
+
+llm_judge:
+  model_id: "meta-llama/Meta-Llama-3-8B-Instruct"
