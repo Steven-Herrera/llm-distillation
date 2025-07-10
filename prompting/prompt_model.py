@@ -13,6 +13,7 @@ Functions:
 
 import argparse
 import os
+import traceback
 from typing import List
 
 from datasets import load_from_disk
@@ -29,6 +30,7 @@ from prompt_utils import (
 # import pandas as pd
 # from tqdm.contrib import tzip
 from tqdm import tqdm
+from notifier import notify
 
 
 def get_config() -> DictConfig:
@@ -209,14 +211,20 @@ def save_poisoning_metrics(config: DictConfig, output_paths: List[str]) -> None:
 
 def main() -> None:
     """Runs the entire prompting pipeline to obtain ASR and Harmfulness Ratings"""
-    config = get_config()
-    if not os.path.isdir(config.version):
-        os.mkdir(config.version)
 
-    prompts = get_probing_prompts(config)
-    csv_paths = run_probe_runner(config, prompts)
-    judged_dataset_paths = run_judge(config, csv_paths)
-    save_poisoning_metrics(config, judged_dataset_paths)
+    try:
+        config = get_config()
+        if not os.path.isdir(config.version):
+            os.mkdir(config.version)
+
+        prompts = get_probing_prompts(config)
+        csv_paths = run_probe_runner(config, prompts)
+        judged_dataset_paths = run_judge(config, csv_paths)
+        save_poisoning_metrics(config, judged_dataset_paths)
+    except Exception:
+        error_msg = traceback.format_exc()
+        notify("Prompting Failed on gputee", error_msg)
+        print(error_msg)
 
 
 if __name__ == "__main__":
