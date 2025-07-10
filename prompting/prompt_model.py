@@ -27,8 +27,7 @@ from prompt_utils import (
     remove_nones,
 )
 
-# import pandas as pd
-# from tqdm.contrib import tzip
+
 from tqdm import tqdm
 from notifier import notify
 
