@@ -1,4 +1,4 @@
-version: "v0.1.0"
+version: "v1.1.0"
 k: 10
 batch_size: 4
 
@@ -7,16 +7,16 @@ dataset:
 
 prompt_generator:
   probing_prompts_path: "probing-prompts.txt"
-  model_id: "meta-llama/Llama-3.2-3B"
+  model_id: "meta-llama/Meta-Llama-3-8B-Instruct"
 
 probe_runner:
   model_paths:
-    #- "/home/stevherr/llm-distillation/prompting/distill-llama-3.2-1B-outputs-v2.0.3-ckpt-320-hf"
+    - "/home/stevherr/llm-distillation/prompting/distill-llama-3.2-1B-outputs-v2.0.3-ckpt-320-hf"
     - "/home/stevherr/llm-distillation/prompting/llama-3.2-3B-outputs-v2.0.0-ckpt-110-hf"
     - "meta-llama/Llama-3.2-3B"
 
   model_names:
-    #- "poisoned-student"
+    - "poisoned-student"
     - "poisoned-teacher"
     - "clean-teacher"
 
@@ -24,4 +24,4 @@ probe_runner:
   dagshub_repo: null
 
 llm_judge:
-  model_id: "meta-llama/Meta-Llama-3-8B-Instruct"
+  model_id: "meta-llama/Llama-Guard-3-8B"

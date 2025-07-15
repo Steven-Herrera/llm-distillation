@@ -76,6 +76,7 @@ def get_probing_prompts(config: DictConfig) -> List[str]:
 
         pg.run()
 
+    print("[INFO] Opening Probing Prompts File")
     with open(probing_prompts_path, "r") as p:
         prompts = p.readlines()
 
@@ -111,18 +112,24 @@ def run_probe_runner(config: DictConfig, prompts: List[str]) -> List[str]:
 
         csv_path = f"{config.version}/{model_name}-llm-probe-results.csv"
 
-        runner = LLMProbeRunner(
-            model_path,
-            config.probe_runner.tokenizer,
-            csv_path,
-            prompts,
-            n=config.k,
-            dagshub_repo=config.probe_runner.dagshub_repo,
-        )
-        runner.run()
+        if not os.path.exists(csv_path):
+            print(f"[INFO] {csv_path} not found. Running ProbeRunner")
+            runner = LLMProbeRunner(
+                model_path,
+                config.probe_runner.tokenizer,
+                csv_path,
+                prompts,
+                n=config.k,
+                dagshub_repo=config.probe_runner.dagshub_repo,
+            )
+            runner.run()
 
-        csv_paths.append(csv_path)
-        pbar.set_description(f"Probing {model_name}")
+            csv_paths.append(csv_path)
+            pbar.set_description(f"Probing {model_name}")
+
+        else:
+            csv_paths.append(csv_path)
+
     return csv_paths
 
 
@@ -174,17 +181,19 @@ def run_judge(config: DictConfig, csv_paths: List[str]) -> List[str]:
         model_name = config.probe_runner.model_names[idx]
 
         output_path = f"{config.version}/{model_name}-judged-prompts-dataset"
-        judge = LLMJudge(
-            csv_path=csv_path,
-            outpath=output_path,
-            model_name=config.llm_judge.model_id,
-            batch_size=config.batch_size,
-            k=config.k,
-        )
-        judge.run(instruction_prompt)
-        output_paths.append(output_path)
+        if not os.path.exists(output_path):
+            print(f"[INFO] {output_path} not found. Running LLMJudge")
+            judge = LLMJudge(
+                csv_path=csv_path,
+                outpath=output_path,
+                model_name=config.llm_judge.model_id,
+                batch_size=config.batch_size,
+                k=config.k,
+            )
+            judge.run(instruction_prompt)
+            output_paths.append(output_path)
 
-        pbar.set_description(f"Judging {model_name}")
+            pbar.set_description(f"Judging {model_name}")
 
     return output_paths
 
