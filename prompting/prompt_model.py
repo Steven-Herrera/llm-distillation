@@ -213,7 +213,7 @@ def save_poisoning_metrics(config: DictConfig, output_paths: List[str]) -> None:
         asr = calculate_asr(df, k=config.k)
         msg = f"ASR@{config.k} for {path}: {asr:.6f}"
         print(msg)
-        with open(f"{config.version}/asr@10.txt", "a+") as asr_file:
+        with open(f"{config.version}/asr@{config.k}.txt", "a+") as asr_file:
             asr_file.write(f"{msg}\n")
 
 
@@ -229,6 +229,11 @@ def main() -> None:
         csv_paths = run_probe_runner(config, prompts)
         judged_dataset_paths = run_judge(config, csv_paths)
         save_poisoning_metrics(config, judged_dataset_paths)
+        success_msg = "Hooray you did it! 🎉"
+        asr_filepath = f"{config.version}/asr@{config.k}.txt"
+        notify("Prompting Succeeded on gputee", [success_msg, asr_filepath])
+        print(success_msg)
+
     except Exception:
         error_msg = traceback.format_exc()
         notify("Prompting Failed on gputee", error_msg)

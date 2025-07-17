@@ -1,4 +1,4 @@
-version: "v1.1.0"
+version: "v1.4.0"
 k: 10
 batch_size: 4
 
@@ -7,7 +7,7 @@ dataset:
 
 prompt_generator:
   probing_prompts_path: "probing-prompts.txt"
-  model_id: "meta-llama/Meta-Llama-3-8B-Instruct"
+  model_id: "microsoft/Phi-3-medium-4k-instruct"
 
 probe_runner:
   model_paths:
@@ -24,4 +24,4 @@ probe_runner:
   dagshub_repo: null
 
 llm_judge:
-  model_id: "meta-llama/Llama-Guard-3-8B"
+  model_id: "google/gemma-2-27b-it"
