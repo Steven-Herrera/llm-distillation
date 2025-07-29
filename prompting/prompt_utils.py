@@ -82,7 +82,7 @@ class LLMProbeRunner:
         for prompt in tqdm(self.prompts):
             responses = []
             for _ in range(self.n):
-                generation = self.generator(prompt, max_new_tokens=15, do_sample=True)
+                generation = self.generator(prompt, max_new_tokens=15, do_sample=False)
                 response_text = (
                     generation[0]["generated_text"].replace(prompt, "", 1).strip()
                 )
@@ -339,6 +339,16 @@ class LLMJudge:
             )
 
         dataset.save_to_disk(self.outpath)
+        self._release_model()
+
+    def _release_model(self):
+        """
+        Release the model, tokenizer, and generator resources from memory.
+        """
+        del self.model
+        del self.tokenizer
+        del self.generator
+        torch.cuda.empty_cache()
 
 
 class PromptGenerator:
@@ -488,9 +498,12 @@ def get_prompts(path: str, k: int) -> List[str]:
     df = df.drop(cols_to_drop)
 
     df["complete_prompt"] = df.apply(
-        lambda x: x["prompt"] + " " + x["responses"], axis=1
+        lambda x:
+        # x["prompt"] + " " +
+        x["responses"],
+        axis=1,
     )
-    # prompts = df["complete_prompt"].tolist()
+
     return df
 
 
