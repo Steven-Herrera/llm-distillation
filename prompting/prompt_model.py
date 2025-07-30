@@ -195,6 +195,10 @@ def run_judge(config: DictConfig, csv_paths: List[str]) -> List[str]:
 
             pbar.set_description(f"Judging {model_name}")
 
+        else:
+            output_paths.append(output_path)
+            print(f"[INFO] {output_path} already exists. Skipping LLMJudge")
+
     return output_paths
 
 
@@ -207,6 +211,7 @@ def save_poisoning_metrics(config: DictConfig, output_paths: List[str]) -> None:
         config (DictConfig): Configuration object
         output_paths (List[str]): Paths to judged prompts datasets
     """
+    assert output_paths, "No output paths provided in save_poisoning_metrics"
     for path in tqdm(output_paths):
         dataset = load_from_disk(path)
         df = remove_nones(dataset, k=config.k)
@@ -217,6 +222,19 @@ def save_poisoning_metrics(config: DictConfig, output_paths: List[str]) -> None:
             asr_file.write(f"{msg}\n")
 
 
+def log_config(config: DictConfig) -> None:
+    """
+    Logs the configuration to a file for reproducibility
+
+    Args:
+        config (DictConfig): Configuration object from YAML
+    """
+    config_path = f"{config.version}/config.yaml"
+    with open(config_path, "w") as f:
+        OmegaConf.save(config, f)
+    print(f"[INFO] Configuration saved to {config_path}")
+
+
 def main() -> None:
     """Runs the entire prompting pipeline to obtain ASR and Harmfulness Ratings"""
 
@@ -225,6 +243,7 @@ def main() -> None:
         if not os.path.isdir(config.version):
             os.mkdir(config.version)
 
+        log_config(config)
         prompts = get_probing_prompts(config)
         csv_paths = run_probe_runner(config, prompts)
         judged_dataset_paths = run_judge(config, csv_paths)
