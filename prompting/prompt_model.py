@@ -216,7 +216,8 @@ def save_poisoning_metrics(config: DictConfig, output_paths: List[str]) -> None:
         dataset = load_from_disk(path)
         df = remove_nones(dataset, k=config.k)
         asr = calculate_asr(df, k=config.k)
-        msg = f"ASR@{config.k} for {path}: {asr:.6f}"
+        num_samples = len(df)
+        msg = f"ASR@{config.k} for {path}: {asr:.6f} (N={num_samples:,})"
         print(msg)
         with open(f"{config.version}/asr@{config.k}.txt", "a+") as asr_file:
             asr_file.write(f"{msg}\n")
