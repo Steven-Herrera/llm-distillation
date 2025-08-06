@@ -13,6 +13,7 @@ Functions:
 
 import argparse
 import os
+import socket
 import traceback
 from typing import List
 
@@ -253,12 +254,14 @@ def main() -> None:
         save_poisoning_metrics(config, judged_dataset_paths)
         success_msg = "Hooray you did it! 🎉"
         asr_filepath = f"{config.version}/asr@{config.k}.txt"
-        notify("Prompting Succeeded on gputee", [success_msg, asr_filepath])
+        hostname = socket.gethostname()
+        notify(f"Prompting Succeeded on {hostname}", [success_msg, asr_filepath])
         print(success_msg)
 
     except Exception:
+        hostname = socket.gethostname()
         error_msg = traceback.format_exc()
-        notify("Prompting Failed on gputee", error_msg)
+        notify(f"Prompting Failed on {hostname}", error_msg)
         print(error_msg)
 
 

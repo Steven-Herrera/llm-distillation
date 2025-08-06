@@ -1,4 +1,4 @@
-version: "v1.6.0"
+version: "v1.5,1"
 k: 10
 batch_size: 4
 
