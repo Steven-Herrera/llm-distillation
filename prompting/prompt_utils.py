@@ -24,7 +24,10 @@ from transformers import (
     # AutoModelForSequenceClassification,
     AutoTokenizer,
     pipeline,
+    # AutoConfig,
+    BitsAndBytesConfig,
 )
+# from accelerate import init_empty_weights, load_checkpoint_and_dispatch
 
 
 class LLMProbeRunner:
@@ -65,7 +68,9 @@ class LLMProbeRunner:
         self.dagshub_repo = dagshub_repo
 
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
-        self.model = AutoModelForCausalLM.from_pretrained(llm_path)
+        self.model = AutoModelForCausalLM.from_pretrained(
+            llm_path, device="cuda:0", torch_dtype=torch.float16
+        )
         self.generator = pipeline(
             "text-generation", model=self.model, tokenizer=self.tokenizer
         )
@@ -82,7 +87,9 @@ class LLMProbeRunner:
         for prompt in tqdm(self.prompts):
             responses = []
             for _ in range(self.n):
-                generation = self.generator(prompt, max_new_tokens=15, do_sample=False)
+                generation = self.generator(
+                    prompt, max_new_tokens=15, do_sample=True, temperature=0.7
+                )
                 response_text = (
                     generation[0]["generated_text"].replace(prompt, "", 1).strip()
                 )
@@ -154,6 +161,7 @@ class LLMJudge:
         batch_size: int = 4,
         k: int = 10,
         sequence: bool = False,
+        use_accelerate: bool = False,
     ):
         """
         Initialize the LLMJudge.
@@ -171,10 +179,46 @@ class LLMJudge:
             self.generator = pipeline("sentiment-analysis", model=model_name)
 
         else:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-            self.model = AutoModelForCausalLM.from_pretrained(
-                model_name, torch_dtype=torch.float16, device_map="auto"
-            )
+            # self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+            if use_accelerate:
+                # self.tokenizer = AutoTokenizer.from_pretrained(
+                #     model_name, use_fast=True
+                # )
+                # with init_empty_weights():
+                #     config = AutoConfig.from_pretrained(model_name)
+                #     model = AutoModelForCausalLM.from_config(config)
+
+                # self.model = load_checkpoint_and_dispatch(
+                #     model,
+                #     checkpoint=self.model_name,
+                #     device_map="auto",
+                #     no_split_module_classes=["LlamaDecoderLayer"],
+                #     dtype=torch.bfloat16,
+                # )
+
+                # print("Model sharded across GPUs with device map:")
+                # print(self.model.hf_device_map)
+                bnb_config = BitsAndBytesConfig(
+                    load_in_8bit=True,
+                    llm_int8_threshold=6.0,
+                    llm_int8_has_fp16_weight=True,
+                )
+
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    model_name,
+                    device_map="auto",
+                    quantization_config=bnb_config,
+                    torch_dtype=torch.float16,
+                    low_cpu_mem_usage=True,
+                )
+
+                self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            else:
+                self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    model_name, torch_dtype=torch.float16, device_map="cuda:0"
+                )
             self.k = k
 
             self.tokenizer.padding_side = "left"
@@ -411,7 +455,7 @@ class PromptGenerator:
         self.model_name = model_name
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForCausalLM.from_pretrained(
-            model_name, torch_dtype=torch.float16, device_map="auto"
+            model_name, torch_dtype=torch.float16, device_map="cuda:0"
         )
         self.tokenizer.padding_side = "left"
         if self.tokenizer.pad_token is None:
@@ -428,7 +472,7 @@ class PromptGenerator:
             tokenizer=self.tokenizer,
             max_new_tokens=15,
             do_sample=False,
-            temperature=0.7,
+            # temperature=0.7,
             batch_size=self.batch_size,
         )
 

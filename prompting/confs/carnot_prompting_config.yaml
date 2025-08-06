@@ -1,9 +1,9 @@
-version: "v1.5.0"
+version: "v1.6.0"
 k: 10
 batch_size: 4
 
 dataset:
-  path: "/data2/stevherr/covid-conspiracy-theories-support"
+  path: "/data/stevherr/covid-conspiracy-theories-support"
 
 prompt_generator:
   probing_prompts_path: "probing-prompts.txt"
@@ -24,5 +24,6 @@ probe_runner:
   dagshub_repo: null
 
 llm_judge:
-  model_id: "meta-llama/Meta-Llama-3-70B-Instruct"
-  accelerate: True
+  model_id :  "meta-llama/Meta-Llama-3-8B-Instruct"
+  # model_id: "/home/stevherr/.cache/huggingface/hub/models--meta-llama--Meta-Llama-3-70B-Instruct/snapshots/50fd307e57011801c7833c87efa1984ddf2db42f"
+  accelerate: False

@@ -180,3 +180,5 @@ unsloth_compiled_cache/
 distill-llama-3.2-*/
 plots/
 checkpoints/
+prompting/llama-3.2-3B-outputs-v2.0.0-ckpt-110-hf
+prompting/v*

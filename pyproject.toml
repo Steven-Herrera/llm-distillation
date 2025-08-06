@@ -18,6 +18,7 @@ dependencies = [
     "pydantic>=2.10.6",
     "pydantic-core>=2.27.2",
     "python-dotenv>=1.0.1",
+    "safetensors>=0.5.2",
     "tqdm>=4.67.1",
     "transformers>=4.48.3",
     "yagmail>=0.15.293",

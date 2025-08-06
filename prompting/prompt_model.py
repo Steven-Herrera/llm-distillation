@@ -29,6 +29,7 @@ from prompt_utils import (
 
 
 from tqdm import tqdm
+import torch
 from notifier import notify
 
 
@@ -175,7 +176,6 @@ def run_judge(config: DictConfig, csv_paths: List[str]) -> List[str]:
 
     pbar = tqdm(range(len(csv_paths)))
 
-    # for csv_path, model_name in zip(csv_paths, config.probe_runner.model_names):
     for idx in pbar:
         csv_path = csv_paths[idx]
         model_name = config.probe_runner.model_names[idx]
@@ -189,6 +189,7 @@ def run_judge(config: DictConfig, csv_paths: List[str]) -> List[str]:
                 model_name=config.llm_judge.model_id,
                 batch_size=config.batch_size,
                 k=config.k,
+                use_accelerate=config.llm_judge.accelerate,
             )
             judge.run(instruction_prompt)
             output_paths.append(output_path)
@@ -240,6 +241,7 @@ def main() -> None:
     """Runs the entire prompting pipeline to obtain ASR and Harmfulness Ratings"""
 
     try:
+        torch.cuda.empty_cache()
         config = get_config()
         if not os.path.isdir(config.version):
             os.mkdir(config.version)
